@@ -1,0 +1,8 @@
+name = "save-money-backend"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "save-money-db"
+database_id = "AQUI_PONTU_DATABASE_ID_SI_YA_CREASTE_LA_DB"
