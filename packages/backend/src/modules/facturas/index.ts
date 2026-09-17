@@ -51,7 +51,9 @@ facturas.post(
         );
       }
 
-      if (!validarChecksum(body.clave_acceso_49)) {
+      const enforce = c.env.SRI_ENFORCE_VALIDATION === "true";
+
+      if (enforce && !validarChecksum(body.clave_acceso_49)) {
         return c.json(
           { error: "La clave de acceso tiene un dígito verificador inválido" },
           400
@@ -61,8 +63,9 @@ facturas.post(
       const sriResult = await consultarSRI(body.clave_acceso_49);
 
       if (
-        sriResult.estado === "rechazada" ||
-        sriResult.estado === "no_autorizado"
+        enforce &&
+        (sriResult.estado === "rechazada" ||
+          sriResult.estado === "no_autorizado")
       ) {
         return c.json(
           {
@@ -74,7 +77,9 @@ facturas.post(
       }
 
       let estado: string;
-      if (sriResult.estado === "servicio_no_disponible") {
+      if (!enforce) {
+        estado = "aprobada";
+      } else if (sriResult.estado === "servicio_no_disponible") {
         estado = "pendiente_verificacion_sri";
       } else {
         const nombreUsuario = await db
@@ -102,8 +107,8 @@ facturas.post(
             `INSERT INTO facturas
               (cliente_id, comercio_id, evento_id, nivel_verificacion,
                clave_acceso_49, ruc_emisor, nombre_comprador_factura,
-               fecha_factura, monto_total, estado)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+               fecha_factura, monto_total, estado, sri_estado_bruto)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             user.sub,
@@ -115,7 +120,8 @@ facturas.post(
             sriResult.nombre_comprador,
             sriResult.fecha_autorizacion,
             sriResult.monto,
-            estado
+            estado,
+            sriResult.estado
           )
           .run();
 
