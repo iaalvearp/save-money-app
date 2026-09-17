@@ -6,6 +6,7 @@ interface AppEnv {
   Bindings: {
     DB: D1Database;
     JWT_SECRET: string;
+    SRI_ENFORCE_VALIDATION: string;
   };
   Variables: {
     user: { sub: number; rol: string };

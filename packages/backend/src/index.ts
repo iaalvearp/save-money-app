@@ -6,6 +6,7 @@ import { facturas } from "./modules/facturas/index";
 type Bindings = {
   DB: D1Database;
   JWT_SECRET: string;
+  SRI_ENFORCE_VALIDATION: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

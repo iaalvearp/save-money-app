@@ -6,3 +6,6 @@ compatibility_date = "2024-01-01"
 binding = "DB"
 database_name = "save-money-db"
 database_id = "71848fbe-84fe-4486-8e40-890e510e6f8d"
+
+[vars]
+SRI_ENFORCE_VALIDATION = "false"
