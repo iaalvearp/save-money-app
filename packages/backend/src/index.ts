@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { auth } from "./modules/auth/index";
 import { discover } from "./modules/discover/index";
+import { facturas } from "./modules/facturas/index";
 
 type Bindings = {
   DB: D1Database;
@@ -15,6 +16,7 @@ app.get("/", (c) => {
 
 app.route("/auth", auth);
 app.route("/", discover);
+app.route("/facturas", facturas);
 
 export type AppEnv = { Bindings: Bindings };
 export default app;
