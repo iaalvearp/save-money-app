@@ -15,6 +15,7 @@ class ComercioDetailScreen extends StatefulWidget {
 class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
   final _comerciosService = ComerciosService();
   Comercio? _comercio;
+  List<Promocion> _promociones = [];
   bool _loading = true;
   String? _error;
 
@@ -31,10 +32,18 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
     });
 
     try {
-      final comercio = await _comerciosService.obtener(widget.comercioId);
+      final response = await _comerciosService.obtener(widget.comercioId);
       if (!mounted) return;
+
+      final comercioData = response['comercio'] as Map<String, dynamic>;
+      final promocionesData =
+          response['promociones'] as List<dynamic>? ?? [];
+
       setState(() {
-        _comercio = comercio;
+        _comercio = Comercio.fromJson(comercioData);
+        _promociones = promocionesData
+            .map((p) => Promocion.fromJson(p as Map<String, dynamic>))
+            .toList();
         _loading = false;
       });
     } catch (e) {
@@ -99,6 +108,10 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
               children: [
                 _buildHeader(comercio),
                 const SizedBox(height: 24),
+                if (_promociones.isNotEmpty) ...[
+                  _buildPromocionesSection(),
+                  const SizedBox(height: 24),
+                ],
                 _buildInfoSection(comercio),
                 const SizedBox(height: 24),
                 _buildLocationSection(comercio),
@@ -165,11 +178,11 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.amber[700],
+                  color: Colors.blue[700],
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
-                  'Patrocinado',
+                  'Descubierto',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -185,6 +198,39 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
           style: TextStyle(fontSize: 16, color: Colors.grey[600]),
         ),
       ],
+    );
+  }
+
+  Widget _buildPromocionesSection() {
+    return Card(
+      color: Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_offer, size: 20, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                Text(
+                  'Promociones activas',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[700],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (final promo in _promociones) ...[
+              _PromocionTile(promocion: promo),
+              if (promo != _promociones.last) const Divider(height: 16),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -204,11 +250,15 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
             ),
             const SizedBox(height: 12),
             if (comercio.horario != null && comercio.horario!.isNotEmpty) ...[
-              _InfoRow(icon: Icons.access_time, label: 'Horario', value: comercio.horario!),
+              _InfoRow(
+                  icon: Icons.access_time,
+                  label: 'Horario',
+                  value: comercio.horario!),
               const SizedBox(height: 8),
             ],
             if (comercio.ruc != null && comercio.ruc!.isNotEmpty) ...[
-              _InfoRow(icon: Icons.badge, label: 'RUC', value: comercio.ruc!),
+              _InfoRow(
+                  icon: Icons.badge, label: 'RUC', value: comercio.ruc!),
             ],
           ],
         ),
@@ -275,6 +325,58 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
           textStyle: const TextStyle(fontSize: 16),
         ),
       ),
+    );
+  }
+}
+
+class _PromocionTile extends StatelessWidget {
+  final Promocion promocion;
+
+  const _PromocionTile({required this.promocion});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.green[700],
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            promocion.descuento != null
+                ? '-${promocion.descuento!.toInt()}%'
+                : 'Activo',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Código: ${promocion.codigoQr}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+              ),
+              if (promocion.expiraEn != null)
+                Text(
+                  'Válido hasta: ${promocion.expiraEn!.split('T').first}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+            ],
+          ),
+        ),
+        Icon(Icons.chevron_right, color: Colors.grey[400]),
+      ],
     );
   }
 }

@@ -13,36 +13,134 @@ interface AppEnv {
 
 const discover = new Hono<AppEnv>();
 
+function haversineDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const COMERCIOS_SELECT = `
+  SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
+         c.es_patrocinado, c.horario, c.foto_url, c.created_at,
+         u.nombre_completo AS propietario
+  FROM comercios c
+  JOIN usuarios u ON c.usuario_id = u.id
+`;
+
 discover.get("/comercios", async (c) => {
   const db = c.env.DB;
+  const q = c.req.query("q");
   const categoria = c.req.query("categoria");
+  const conPromociones = c.req.query("con_promociones");
+  const lat = c.req.query("lat");
+  const lng = c.req.query("lng");
 
-  let result;
-  if (categoria) {
-    result = await db
-      .prepare(
-        `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-                c.es_patrocinado, c.horario, c.foto_url, c.created_at,
-                u.nombre_completo AS propietario
-         FROM comercios c
-         JOIN usuarios u ON c.usuario_id = u.id
-         WHERE c.categoria = ?`
-      )
-      .bind(categoria)
-      .all();
-  } else {
-    result = await db
-      .prepare(
-        `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-                c.es_patrocinado, c.horario, c.foto_url, c.created_at,
-                u.nombre_completo AS propietario
-         FROM comercios c
-         JOIN usuarios u ON c.usuario_id = u.id`
-      )
-      .all();
+  let sql = COMERCIOS_SELECT;
+  const conditions: string[] = [];
+  const bindings: unknown[] = [];
+
+  if (q) {
+    conditions.push("(c.nombre LIKE ? OR c.categoria LIKE ?)");
+    const pattern = `%${q}%`;
+    bindings.push(pattern, pattern);
   }
 
-  return c.json({ comercios: result.results });
+  if (categoria) {
+    conditions.push("c.categoria = ?");
+    bindings.push(categoria);
+  }
+
+  if (conPromociones === "true") {
+    conditions.push(
+      `c.id IN (
+        SELECT comercio_id FROM cupones
+        WHERE estado = 'activo'
+        AND (expira_en IS NULL OR expira_en > datetime('now'))
+      )`
+    );
+  }
+
+  if (conditions.length > 0) {
+    sql += " WHERE " + conditions.join(" AND ");
+  }
+
+  sql += " ORDER BY c.es_patrocinado DESC, c.nombre ASC";
+
+  const result = await db.prepare(sql).bind(...bindings).all();
+
+  let comercios = result.results as Record<string, unknown>[];
+
+  if (lat && lng) {
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+    if (!isNaN(userLat) && !isNaN(userLng)) {
+      comercios = comercios.map((c) => {
+        const cLat = c.latitud as number | null;
+        const cLng = c.longitud as number | null;
+        if (cLat != null && cLng != null) {
+          const dist = haversineDistance(userLat, userLng, cLat, cLng);
+          return { ...c, distancia_km: Math.round(dist * 10) / 10 };
+        }
+        return { ...c, distancia_km: null };
+      });
+    }
+  }
+
+  return c.json({ comercios });
+});
+
+discover.get("/comercios/cercanos", async (c) => {
+  const db = c.env.DB;
+  const lat = c.req.query("lat");
+  const lng = c.req.query("lng");
+  const radio = c.req.query("radio") || "5";
+
+  if (!lat || !lng) {
+    return c.json(
+      { error: "Parámetros lat y lng son requeridos" },
+      400
+    );
+  }
+
+  const userLat = parseFloat(lat);
+  const userLng = parseFloat(lng);
+  const radioKm = parseFloat(radio);
+
+  if (isNaN(userLat) || isNaN(userLng) || isNaN(radioKm)) {
+    return c.json({ error: "Parámetros numéricos inválidos" }, 400);
+  }
+
+  const result = await db.prepare(COMERCIOS_SELECT).all();
+  const comercios = (result.results as Record<string, unknown>[])
+    .map((c) => {
+      const cLat = c.latitud as number | null;
+      const cLng = c.longitud as number | null;
+      if (cLat != null && cLng != null) {
+        const dist = haversineDistance(userLat, userLng, cLat, cLng);
+        return { ...c, distancia_km: Math.round(dist * 10) / 10 };
+      }
+      return { ...c, distancia_km: null };
+    })
+    .filter((c) => {
+      if (c.distancia_km === null) return false;
+      return (c.distancia_km as number) <= radioKm;
+    })
+    .sort((a, b) => (a.distancia_km as number) - (b.distancia_km as number));
+
+  return c.json({ comercios });
 });
 
 discover.get("/comercios/:id", async (c) => {
@@ -65,7 +163,22 @@ discover.get("/comercios/:id", async (c) => {
     return c.json({ error: "Comercio no encontrado" }, 404);
   }
 
-  return c.json({ comercio });
+  const promociones = await db
+    .prepare(
+      `SELECT id, codigo_qr, descuento, expira_en, estado
+       FROM cupones
+       WHERE comercio_id = ?
+         AND estado = 'activo'
+         AND (expira_en IS NULL OR expira_en > datetime('now'))
+       ORDER BY expira_en ASC`
+    )
+    .bind(id)
+    .all();
+
+  return c.json({
+    comercio,
+    promociones: promociones.results,
+  });
 });
 
 discover.put(
@@ -87,7 +200,10 @@ discover.put(
     }
 
     if (user.rol !== "admin" && comercio.usuario_id !== user.sub) {
-      return c.json({ error: "No tienes permiso para editar este comercio" }, 403);
+      return c.json(
+        { error: "No tienes permiso para editar este comercio" },
+        403
+      );
     }
 
     const body = await c.req.json<{
@@ -128,7 +244,10 @@ discover.put(
     }
 
     if (fields.length === 0) {
-      return c.json({ error: "No se proporcionaron campos para actualizar" }, 400);
+      return c.json(
+        { error: "No se proporcionaron campos para actualizar" },
+        400
+      );
     }
 
     values.push(id);
@@ -147,6 +266,81 @@ discover.put(
       .first();
 
     return c.json({ comercio: updated });
+  }
+);
+
+discover.post(
+  "/comercios",
+  authMiddleware,
+  requireRole("negocio", "admin"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+
+    const body = await c.req.json<{
+      nombre: string;
+      categoria?: string;
+      latitud?: number;
+      longitud?: number;
+      horario?: string;
+      foto_url?: string;
+    }>();
+
+    if (!body.nombre || body.nombre.trim().length === 0) {
+      return c.json({ error: "Nombre del comercio es requerido" }, 400);
+    }
+
+    const result = await db
+      .prepare(
+        `INSERT INTO comercios (usuario_id, nombre, categoria, latitud, longitud, horario, foto_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        user.sub,
+        body.nombre.trim(),
+        body.categoria || null,
+        body.latitud ?? null,
+        body.longitud ?? null,
+        body.horario || null,
+        body.foto_url || null
+      )
+      .run();
+
+    const comercioId = result.meta.last_row_id;
+
+    const created = await db
+      .prepare(
+        `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
+                c.es_patrocinado, c.horario, c.foto_url, c.created_at
+         FROM comercios c WHERE c.id = ?`
+      )
+      .bind(comercioId)
+      .first();
+
+    return c.json({ comercio: created }, 201);
+  }
+);
+
+discover.get(
+  "/mis-comercios",
+  authMiddleware,
+  requireRole("negocio"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+
+    const result = await db
+      .prepare(
+        `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
+                c.es_patrocinado, c.horario, c.foto_url, c.created_at
+         FROM comercios c
+         WHERE c.usuario_id = ?
+         ORDER BY c.nombre ASC`
+      )
+      .bind(user.sub)
+      .all();
+
+    return c.json({ comercios: result.results });
   }
 );
 
