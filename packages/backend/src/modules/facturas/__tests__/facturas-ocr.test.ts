@@ -75,7 +75,22 @@ beforeAll(async () => {
         )),
         motivo_rechazo TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        sri_estado_bruto TEXT
+        sri_estado_bruto TEXT,
+        challenge_nonce TEXT,
+        claim_hash TEXT
+      )`
+    )
+    .run();
+
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS challenges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL REFERENCES usuarios(id),
+        nonce TEXT NOT NULL UNIQUE,
+        expira_en TEXT NOT NULL,
+        usado INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`
     )
     .run();
@@ -148,9 +163,22 @@ describe("POST /facturas/registrar - nivel 2 OCR", () => {
     expect(row?.monto_total).toBe(25.5);
   });
 
-  it("nivel 3 sigue creando fila con estado aprobada", async () => {
+  it("nivel 3 con challenge válido crea fila con estado pendiente_revision_nombre", async () => {
     const app = buildApp();
     const token = await makeToken(1, "cliente");
+
+    const challengeRes = await app.request(
+      "/facturas/challenge",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: db, JWT_SECRET, SRI_ENFORCE_VALIDATION: "false" }
+    );
+    const challengeBody = (await challengeRes.json()) as { nonce: string };
 
     const res = await app.request(
       "/facturas/registrar",
@@ -163,7 +191,7 @@ describe("POST /facturas/registrar - nivel 2 OCR", () => {
         body: JSON.stringify({
           nivel_verificacion: 3,
           comercio_id: 1,
-          numero_factura: "001-001-0000456",
+          challenge_nonce: challengeBody.nonce,
         }),
       },
       { DB: db, JWT_SECRET, SRI_ENFORCE_VALIDATION: "false" }
@@ -171,15 +199,15 @@ describe("POST /facturas/registrar - nivel 2 OCR", () => {
 
     expect(res.status).toBe(201);
     const body = (await res.json()) as { factura_id: number; estado: string };
-    expect(body.estado).toBe("aprobada");
+    expect(body.estado).toBe("pendiente_revision_nombre");
 
     const row = await db
       .prepare("SELECT estado, motivo_rechazo FROM facturas WHERE id = ?")
       .bind(body.factura_id)
       .first<{ estado: string; motivo_rechazo: string | null }>();
 
-    expect(row?.estado).toBe("aprobada");
-    expect(row?.motivo_rechazo).toBeNull();
+    expect(row?.estado).toBe("pendiente_revision_nombre");
+    expect(row?.motivo_rechazo).toContain("sin comprobante");
   });
 
   it("nivel 2 con campos mínimos acepta valores nulos", async () => {

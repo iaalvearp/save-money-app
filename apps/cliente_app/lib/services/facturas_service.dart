@@ -70,6 +70,23 @@ class RegistroResult {
   }
 }
 
+class ChallengeResult {
+  final String nonce;
+  final String expiraEn;
+
+  ChallengeResult({required this.nonce, required this.expiraEn});
+
+  factory ChallengeResult.fromJson(Map<String, dynamic> json) {
+    return ChallengeResult(
+      nonce: json['nonce'] as String,
+      expiraEn: json['expira_en'] as String,
+    );
+  }
+
+  DateTime get expiraEnDateTime => DateTime.parse(expiraEn);
+  bool get expirado => DateTime.now().isAfter(expiraEnDateTime);
+}
+
 class FacturasService {
   final ApiClient _api;
 
@@ -111,6 +128,47 @@ class FacturasService {
       body: {
         'nivel_verificacion': 2,
         'comercio_id': comercioId,
+        if (numeroFactura != null) 'numero_factura': numeroFactura,
+        if (rucEmisor != null) 'ruc_emisor': rucEmisor,
+        if (nombreCompradorFactura != null)
+          'nombre_comprador_factura': nombreCompradorFactura,
+        if (fechaFactura != null) 'fecha_factura': fechaFactura,
+        if (montoTotal != null) 'monto_total': montoTotal,
+      },
+    );
+
+    return RegistroResult.fromJson(response);
+  }
+
+  Future<ChallengeResult> crearChallenge({String? token}) async {
+    final response = await _api.post(
+      '/facturas/challenge',
+      token: token,
+      body: <String, dynamic>{},
+    );
+
+    return ChallengeResult.fromJson(response);
+  }
+
+  Future<RegistroResult> claimNivel3({
+    required String? token,
+    required int comercioId,
+    required String challengeNonce,
+    String? claimHash,
+    String? numeroFactura,
+    String? rucEmisor,
+    String? nombreCompradorFactura,
+    String? fechaFactura,
+    double? montoTotal,
+  }) async {
+    final response = await _api.post(
+      '/facturas/registrar',
+      token: token,
+      body: {
+        'nivel_verificacion': 3,
+        'comercio_id': comercioId,
+        'challenge_nonce': challengeNonce,
+        if (claimHash != null) 'claim_hash': claimHash,
         if (numeroFactura != null) 'numero_factura': numeroFactura,
         if (rucEmisor != null) 'ruc_emisor': rucEmisor,
         if (nombreCompradorFactura != null)

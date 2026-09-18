@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
+import 'nivel3_capture_screen.dart';
 import 'ocr_capture_screen.dart';
 import 'ocr_confirm_screen.dart';
 
@@ -255,6 +256,34 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
               textStyle: const TextStyle(fontSize: 16),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 16),
+          Text(
+            '¿No tiene comprobante?',
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => Nivel3CaptureScreen(
+                    comercioId: widget.comercioId,
+                    comercioNombre: widget.comercioNombre,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('Declarar sin comprobante'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              textStyle: const TextStyle(fontSize: 16),
+              side: BorderSide(color: Colors.orange[300]!),
             ),
           ),
         ],
