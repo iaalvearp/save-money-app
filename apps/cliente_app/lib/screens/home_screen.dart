@@ -184,7 +184,7 @@ class _ComercioTile extends StatelessWidget {
     if (comercio.fotoUrl != null && comercio.fotoUrl!.isNotEmpty) {
       return CircleAvatar(
         backgroundImage: NetworkImage(comercio.fotoUrl!),
-        onBackgroundImageError: (_, __) {},
+        onBackgroundImageError: (_, _) {},
         child: Text(comercio.nombre[0].toUpperCase()),
       );
     }
