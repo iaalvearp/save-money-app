@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { auth } from "./modules/auth/index";
 import { discover } from "./modules/discover/index";
 import { facturas } from "./modules/facturas/index";
+import { flash } from "./modules/flash/index";
 
 type Bindings = {
   DB: D1Database;
@@ -28,6 +29,7 @@ app.get("/", (c) => {
 app.route("/auth", auth);
 app.route("/", discover);
 app.route("/facturas", facturas);
+app.route("/flash", flash);
 
 export type AppEnv = { Bindings: Bindings };
 export default app;
