@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { auth } from "./modules/auth/index";
 import { discover } from "./modules/discover/index";
 import { facturas } from "./modules/facturas/index";
@@ -10,6 +11,15 @@ type Bindings = {
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.get("/", (c) => {
   return c.json({ status: "ok", message: "save-money-app API en línea" });
