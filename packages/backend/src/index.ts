@@ -4,6 +4,7 @@ import { auth } from "./modules/auth/index";
 import { discover } from "./modules/discover/index";
 import { facturas } from "./modules/facturas/index";
 import { flash } from "./modules/flash/index";
+import { hunt } from "./modules/hunt/index";
 
 type Bindings = {
   DB: D1Database;
@@ -30,6 +31,7 @@ app.route("/auth", auth);
 app.route("/", discover);
 app.route("/facturas", facturas);
 app.route("/flash", flash);
+app.route("/hunt", hunt);
 
 export type AppEnv = { Bindings: Bindings };
 export default app;

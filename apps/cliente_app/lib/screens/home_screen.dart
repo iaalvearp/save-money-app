@@ -8,6 +8,7 @@ import '../services/comercios_service.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
 import 'historial_facturas_screen.dart';
+import 'hunt_screen.dart';
 import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -164,6 +165,15 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const FlashScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.celebration),
+            tooltip: 'Hunt',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const HuntScreen()),
               );
             },
           ),
