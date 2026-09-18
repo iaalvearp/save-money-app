@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/comercios_service.dart';
+import 'facturacion_screen.dart';
 
 class ComercioDetailScreen extends StatefulWidget {
   final int comercioId;
@@ -257,7 +258,16 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: null,
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => FacturacionScreen(
+                comercioId: widget.comercioId,
+                comercioNombre: _comercio?.nombre ?? 'Comercio',
+              ),
+            ),
+          );
+        },
         icon: const Icon(Icons.receipt_long),
         label: const Text('Registrar mi compra aquí'),
         style: ElevatedButton.styleFrom(
