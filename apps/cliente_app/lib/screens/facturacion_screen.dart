@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
+import 'ocr_capture_screen.dart';
+import 'ocr_confirm_screen.dart';
 
 class FacturacionScreen extends StatefulWidget {
   final int comercioId;
@@ -123,6 +125,30 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
     });
   }
 
+  void _escanearTicket() {
+    Navigator.of(context).push<OcrConfirmResult>(
+      MaterialPageRoute(
+        builder: (_) => OcrCaptureScreen(
+          comercioId: widget.comercioId,
+          comercioNombre: widget.comercioNombre,
+        ),
+      ),
+    ).then((resultado) {
+      if (resultado != null && mounted) {
+        setState(() {
+          _resultado = RegistroResult(
+            facturaId: resultado.facturaId,
+            estado: resultado.estado,
+            motivoRechazo: resultado.estado == 'pendiente_revision_nombre'
+                ? 'Comprobante verificado por OCR, pendiente validación'
+                : null,
+          );
+          _estado = _EstadoFactura.resultado;
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -213,6 +239,24 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 16),
+          Text(
+            '¿Tiene un ticket físico?',
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _escanearTicket,
+            icon: const Icon(Icons.document_scanner),
+            label: const Text('Escanear ticket'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              textStyle: const TextStyle(fontSize: 16),
+            ),
+          ),
         ],
       ),
     );

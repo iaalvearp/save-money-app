@@ -96,6 +96,33 @@ class FacturasService {
     return RegistroResult.fromJson(response);
   }
 
+  Future<RegistroResult> registrarOCR({
+    required String? token,
+    required int comercioId,
+    String? numeroFactura,
+    String? rucEmisor,
+    String? nombreCompradorFactura,
+    String? fechaFactura,
+    double? montoTotal,
+  }) async {
+    final response = await _api.post(
+      '/facturas/registrar',
+      token: token,
+      body: {
+        'nivel_verificacion': 2,
+        'comercio_id': comercioId,
+        if (numeroFactura != null) 'numero_factura': numeroFactura,
+        if (rucEmisor != null) 'ruc_emisor': rucEmisor,
+        if (nombreCompradorFactura != null)
+          'nombre_comprador_factura': nombreCompradorFactura,
+        if (fechaFactura != null) 'fecha_factura': fechaFactura,
+        if (montoTotal != null) 'monto_total': montoTotal,
+      },
+    );
+
+    return RegistroResult.fromJson(response);
+  }
+
   Future<List<Factura>> listarMisFacturas({String? token}) async {
     final response = await _api.get('/facturas/mias', token: token);
     final facturasJson = response['facturas'] as List<dynamic>? ?? [];

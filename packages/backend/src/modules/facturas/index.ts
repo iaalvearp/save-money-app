@@ -335,8 +335,8 @@ facturas.post(
         `INSERT INTO facturas
           (cliente_id, comercio_id, evento_id, nivel_verificacion,
            numero_factura, ruc_emisor, nombre_comprador_factura,
-           fecha_factura, monto_total, estado)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           fecha_factura, monto_total, estado, motivo_rechazo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         user.sub,
@@ -348,11 +348,20 @@ facturas.post(
         body.nombre_comprador_factura || null,
         body.fecha_factura || null,
         body.monto_total || null,
-        "aprobada"
+        body.nivel_verificacion === 2
+          ? "pendiente_revision_nombre"
+          : "aprobada",
+        body.nivel_verificacion === 2
+          ? "Comprobante verificado por OCR, pendiente validación"
+          : null
       )
       .run();
 
-    return c.json({ factura_id: result.meta.last_row_id, estado: "aprobada" }, 201);
+    const estado = body.nivel_verificacion === 2
+      ? "pendiente_revision_nombre"
+      : "aprobada";
+
+    return c.json({ factura_id: result.meta.last_row_id, estado }, 201);
   }
 );
 
