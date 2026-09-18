@@ -131,7 +131,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _rol,
+                initialValue: _rol,
                 decoration: const InputDecoration(
                   labelText: 'Rol',
                   border: OutlineInputBorder(),
