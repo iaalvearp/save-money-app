@@ -3,3 +3,5 @@ packages/backend/.dev.vars
 node_modules/
 .wrangler/
 .vscode/
+
+packages/backend/dist/
