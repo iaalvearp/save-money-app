@@ -77,10 +77,12 @@ facturas.post(
       }
 
       let estado: string;
+      let motivo_rechazo: string | null = null;
       if (!enforce) {
         estado = "aprobada";
       } else if (sriResult.estado === "servicio_no_disponible") {
         estado = "pendiente_verificacion_sri";
+        motivo_rechazo = "SRI no disponible";
       } else {
         const nombreUsuario = await db
           .prepare("SELECT nombre_completo FROM usuarios WHERE id = ?")
@@ -96,6 +98,7 @@ facturas.post(
           nombreFactura.toUpperCase() !== nombreReal.toUpperCase()
         ) {
           estado = "pendiente_revision_nombre";
+          motivo_rechazo = "Nombre en factura no coincide con el nombre del usuario";
         } else {
           estado = "aprobada";
         }
@@ -107,8 +110,8 @@ facturas.post(
             `INSERT INTO facturas
               (cliente_id, comercio_id, evento_id, nivel_verificacion,
                clave_acceso_49, ruc_emisor, nombre_comprador_factura,
-               fecha_factura, monto_total, estado, sri_estado_bruto)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+               fecha_factura, monto_total, estado, motivo_rechazo, sri_estado_bruto)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             user.sub,
@@ -121,6 +124,7 @@ facturas.post(
             sriResult.fecha_autorizacion,
             sriResult.monto,
             estado,
+            motivo_rechazo,
             sriResult.estado
           )
           .run();
@@ -129,6 +133,7 @@ facturas.post(
           {
             factura_id: result.meta.last_row_id,
             estado,
+            motivo_rechazo,
             sri_estado: sriResult.estado,
           },
           201
@@ -183,7 +188,7 @@ facturas.get(
       .prepare(
         `SELECT id, nivel_verificacion, numero_factura, ruc_emisor,
                 nombre_comprador_factura, fecha_factura, monto_total,
-                descuento_aplicado, estado, created_at
+                descuento_aplicado, estado, motivo_rechazo, created_at
          FROM facturas
          WHERE cliente_id = ?
          ORDER BY created_at DESC`
