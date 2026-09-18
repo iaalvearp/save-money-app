@@ -5,6 +5,11 @@ import {
   consultarSRI as defaultConsultarSRI,
 } from "../sri/index";
 import type { SRIResultado } from "../sri/index";
+import {
+  verificarDuplicadoSRI,
+  verificarDuplicadoTicket,
+  verificarHorarioEvento,
+} from "../antifraude/index";
 
 function generarNonce(): string {
   const array = new Uint8Array(32);
@@ -128,6 +133,28 @@ facturas.post(
         .bind(challenge.id)
         .run();
 
+      const duplicado = await verificarDuplicadoTicket(db, {
+        clienteId: user.sub,
+        comercioId: body.comercio_id,
+        numeroFactura: body.numero_factura,
+        rucEmisor: body.ruc_emisor,
+        fechaFactura: body.fecha_factura,
+        montoTotal: body.monto_total,
+      });
+
+      if (duplicado.esDuplicado) {
+        return c.json({ error: duplicado.motivo }, 409);
+      }
+
+      const horario = await verificarHorarioEvento(db, {
+        eventoId: body.evento_id,
+        fechaFactura: body.fecha_factura,
+      });
+
+      if (!horario.valido) {
+        return c.json({ error: horario.motivo }, 422);
+      }
+
       try {
         const result = await db
           .prepare(
@@ -231,45 +258,98 @@ facturas.post(
         );
       }
 
-      const sriResult = await consultarSRIFn(body.clave_acceso_49);
+      const duplicado = await verificarDuplicadoSRI(db, body.clave_acceso_49);
+      if (duplicado.esDuplicado) {
+        const existing = await db
+          .prepare("SELECT id, cliente_id, estado FROM facturas WHERE id = ?")
+          .bind(duplicado.facturaId)
+          .first<{ id: number; cliente_id: number; estado: string }>();
 
-      const existingPending = await db
-        .prepare(
-          "SELECT id, cliente_id, estado FROM facturas WHERE clave_acceso_49 = ?"
-        )
-        .bind(body.clave_acceso_49)
-        .first<{ id: number; cliente_id: number; estado: string }>();
+        if (existing && existing.estado === "pendiente_verificacion_sri") {
+          if (existing.cliente_id !== user.sub) {
+            return c.json(
+              { error: "Esta clave ya fue registrada o intentada anteriormente" },
+              409
+            );
+          }
+          const sriResult = await consultarSRIFn(body.clave_acceso_49);
 
-      if (
-        existingPending &&
-        existingPending.estado === "pendiente_verificacion_sri"
-      ) {
-        if (existingPending.cliente_id !== user.sub) {
-          return c.json(
-            { error: "Esta clave ya fue registrada o intentada anteriormente" },
-            409
-          );
-        }
+          if (sriResult.estado === "servicio_no_disponible") {
+            return c.json(
+              {
+                factura_id: existing.id,
+                estado: "pendiente_verificacion_sri",
+                mensaje: "SRI sigue no disponible. Puede reintentar más tarde.",
+              },
+              200
+            );
+          }
 
-        if (sriResult.estado === "servicio_no_disponible") {
-          return c.json(
-            {
-              factura_id: existingPending.id,
-              estado: "pendiente_verificacion_sri",
-              mensaje: "SRI sigue no disponible. Puede reintentar más tarde.",
-            },
-            200
-          );
-        }
+          if (
+            sriResult.estado === "rechazada" ||
+            sriResult.estado === "no_autorizado"
+          ) {
+            await db
+              .prepare(
+                `UPDATE facturas
+                 SET estado = 'rechazada',
+                     motivo_rechazo = ?,
+                     sri_estado_bruto = ?,
+                     ruc_emisor = COALESCE(?, ruc_emisor),
+                     nombre_comprador_factura = COALESCE(?, nombre_comprador_factura),
+                     fecha_factura = COALESCE(?, fecha_factura),
+                     monto_total = COALESCE(?, monto_total)
+                 WHERE id = ?`
+              )
+              .bind(
+                `SRI respondió: ${sriResult.estado}`,
+                sriResult.estado,
+                sriResult.ruc_emisor,
+                sriResult.nombre_comprador,
+                sriResult.fecha_autorizacion,
+                sriResult.monto,
+                existing.id
+              )
+              .run();
 
-        if (
-          sriResult.estado === "rechazada" ||
-          sriResult.estado === "no_autorizado"
-        ) {
+            return c.json(
+              {
+                factura_id: existing.id,
+                estado: "rechazada",
+                motivo_rechazo: `SRI respondió: ${sriResult.estado}`,
+                sri_estado: sriResult.estado,
+              },
+              200
+            );
+          }
+
+          const nombreUsuario = await db
+            .prepare("SELECT nombre_completo FROM usuarios WHERE id = ?")
+            .bind(user.sub)
+            .first<{ nombre_completo: string }>();
+
+          const nombreFactura = sriResult.nombre_comprador;
+          const nombreReal = nombreUsuario?.nombre_completo;
+
+          let nuevoEstado: string;
+          let nuevoMotivo: string | null = null;
+
+          if (
+            nombreFactura &&
+            nombreReal &&
+            nombreFactura.toUpperCase() !== nombreReal.toUpperCase()
+          ) {
+            nuevoEstado = "pendiente_revision_nombre";
+            nuevoMotivo =
+              "Nombre en factura no coincide con el nombre del usuario";
+          } else {
+            nuevoEstado = "aprobada";
+          }
+
           await db
             .prepare(
               `UPDATE facturas
-               SET estado = 'rechazada',
+               SET estado = ?,
                    motivo_rechazo = ?,
                    sri_estado_bruto = ?,
                    ruc_emisor = COALESCE(?, ruc_emisor),
@@ -279,83 +359,40 @@ facturas.post(
                WHERE id = ?`
             )
             .bind(
-              `SRI respondió: ${sriResult.estado}`,
+              nuevoEstado,
+              nuevoMotivo,
               sriResult.estado,
               sriResult.ruc_emisor,
               sriResult.nombre_comprador,
               sriResult.fecha_autorizacion,
               sriResult.monto,
-              existingPending.id
+              existing.id
             )
             .run();
 
           return c.json(
             {
-              factura_id: existingPending.id,
-              estado: "rechazada",
-              motivo_rechazo: `SRI respondió: ${sriResult.estado}`,
+              factura_id: existing.id,
+              estado: nuevoEstado,
+              motivo_rechazo: nuevoMotivo,
               sri_estado: sriResult.estado,
             },
             200
           );
         }
 
-        const nombreUsuario = await db
-          .prepare("SELECT nombre_completo FROM usuarios WHERE id = ?")
-          .bind(user.sub)
-          .first<{ nombre_completo: string }>();
+        return c.json({ error: duplicado.motivo }, 409);
+      }
 
-        const nombreFactura = sriResult.nombre_comprador;
-        const nombreReal = nombreUsuario?.nombre_completo;
+      const sriResult = await consultarSRIFn(body.clave_acceso_49);
 
-        let nuevoEstado: string;
-        let nuevoMotivo: string | null = null;
+      const horario = await verificarHorarioEvento(db, {
+        eventoId: body.evento_id,
+        fechaFactura: sriResult.fecha_autorizacion,
+      });
 
-        if (
-          nombreFactura &&
-          nombreReal &&
-          nombreFactura.toUpperCase() !== nombreReal.toUpperCase()
-        ) {
-          nuevoEstado = "pendiente_revision_nombre";
-          nuevoMotivo =
-            "Nombre en factura no coincide con el nombre del usuario";
-        } else {
-          nuevoEstado = "aprobada";
-        }
-
-        await db
-          .prepare(
-            `UPDATE facturas
-             SET estado = ?,
-                 motivo_rechazo = ?,
-                 sri_estado_bruto = ?,
-                 ruc_emisor = COALESCE(?, ruc_emisor),
-                 nombre_comprador_factura = COALESCE(?, nombre_comprador_factura),
-                 fecha_factura = COALESCE(?, fecha_factura),
-                 monto_total = COALESCE(?, monto_total)
-             WHERE id = ?`
-          )
-          .bind(
-            nuevoEstado,
-            nuevoMotivo,
-            sriResult.estado,
-            sriResult.ruc_emisor,
-            sriResult.nombre_comprador,
-            sriResult.fecha_autorizacion,
-            sriResult.monto,
-            existingPending.id
-          )
-          .run();
-
-        return c.json(
-          {
-            factura_id: existingPending.id,
-            estado: nuevoEstado,
-            motivo_rechazo: nuevoMotivo,
-            sri_estado: sriResult.estado,
-          },
-          200
-        );
+      if (!horario.valido) {
+        return c.json({ error: horario.motivo }, 422);
       }
 
       if (
@@ -449,6 +486,28 @@ facturas.post(
           409
         );
       }
+    }
+
+    const duplicado = await verificarDuplicadoTicket(db, {
+      clienteId: user.sub,
+      comercioId: body.comercio_id,
+      numeroFactura: body.numero_factura,
+      rucEmisor: body.ruc_emisor,
+      fechaFactura: body.fecha_factura,
+      montoTotal: body.monto_total,
+    });
+
+    if (duplicado.esDuplicado) {
+      return c.json({ error: duplicado.motivo }, 409);
+    }
+
+    const horario = await verificarHorarioEvento(db, {
+      eventoId: body.evento_id,
+      fechaFactura: body.fecha_factura,
+    });
+
+    if (!horario.valido) {
+      return c.json({ error: horario.motivo }, 422);
     }
 
     const result = await db
