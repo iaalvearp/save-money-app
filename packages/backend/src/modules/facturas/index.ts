@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
-import { validarChecksum, consultarSRI } from "../sri/index";
+import {
+  validarChecksum as defaultValidarChecksum,
+  consultarSRI as defaultConsultarSRI,
+} from "../sri/index";
+import type { SRIResultado } from "../sri/index";
 
 interface AppEnv {
   Bindings: {
@@ -13,7 +17,14 @@ interface AppEnv {
   };
 }
 
-const facturas = new Hono<AppEnv>();
+type ValidarChecksumFn = (clave: string) => boolean;
+type ConsultarSRIFn = (clave: string) => Promise<SRIResultado>;
+
+export function createFacturas(
+  validarChecksumFn: ValidarChecksumFn = defaultValidarChecksum,
+  consultarSRIFn: ConsultarSRIFn = defaultConsultarSRI
+) {
+  const facturas = new Hono<AppEnv>();
 
 facturas.post(
   "/registrar",
@@ -88,7 +99,7 @@ facturas.post(
         return null;
       };
 
-      if (enforce && !validarChecksum(body.clave_acceso_49)) {
+      if (enforce && !validarChecksumFn(body.clave_acceso_49)) {
         const duplicate = await insertRechazada(
           "Checksum inválido en clave de acceso"
         );
@@ -99,7 +110,7 @@ facturas.post(
         );
       }
 
-      const sriResult = await consultarSRI(body.clave_acceso_49);
+      const sriResult = await consultarSRIFn(body.clave_acceso_49);
 
       if (
         enforce &&
@@ -244,4 +255,7 @@ facturas.get(
   }
 );
 
-export { facturas };
+  return facturas;
+}
+
+export const facturas = createFacturas();
