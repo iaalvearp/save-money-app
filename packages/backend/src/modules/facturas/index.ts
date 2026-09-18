@@ -53,7 +53,46 @@ facturas.post(
 
       const enforce = c.env.SRI_ENFORCE_VALIDATION === "true";
 
+      const insertRechazada = async (
+        motivo: string,
+        sriEstadoBruto?: string
+      ) => {
+        try {
+          await db
+            .prepare(
+              `INSERT INTO facturas
+                (cliente_id, comercio_id, evento_id, nivel_verificacion,
+                 clave_acceso_49, estado, motivo_rechazo, sri_estado_bruto)
+               VALUES (?, ?, ?, ?, ?, 'rechazada', ?, ?)`
+            )
+            .bind(
+              user.sub,
+              body.comercio_id || null,
+              body.evento_id || null,
+              body.nivel_verificacion,
+              body.clave_acceso_49,
+              motivo,
+              sriEstadoBruto || null
+            )
+            .run();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("UNIQUE constraint failed")) {
+            return c.json(
+              { error: "Esta clave ya fue registrada o intentada anteriormente" },
+              409
+            );
+          }
+          throw err;
+        }
+        return null;
+      };
+
       if (enforce && !validarChecksum(body.clave_acceso_49)) {
+        const duplicate = await insertRechazada(
+          "Checksum inválido en clave de acceso"
+        );
+        if (duplicate) return duplicate;
         return c.json(
           { error: "La clave de acceso tiene un dígito verificador inválido" },
           400
@@ -67,6 +106,11 @@ facturas.post(
         (sriResult.estado === "rechazada" ||
           sriResult.estado === "no_autorizado")
       ) {
+        const duplicate = await insertRechazada(
+          `SRI respondió: ${sriResult.estado}`,
+          sriResult.estado
+        );
+        if (duplicate) return duplicate;
         return c.json(
           {
             error: `Factura ${sriResult.estado} por el SRI`,
@@ -142,7 +186,7 @@ facturas.post(
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("UNIQUE constraint failed")) {
           return c.json(
-            { error: "Esta clave de acceso ya fue registrada" },
+            { error: "Esta clave ya fue registrada o intentada anteriormente" },
             409
           );
         }
