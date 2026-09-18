@@ -20,6 +20,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   final _fechaController = TextEditingController();
 
   String _rol = 'cliente';
+  bool _consentimientoPublicidad = false;
   bool _loading = false;
   String? _error;
 
@@ -32,8 +33,46 @@ class _RegistroScreenState extends State<RegistroScreen> {
     super.dispose();
   }
 
+  int? _calcularEdad(String fechaNacimiento) {
+    try {
+      final partes = fechaNacimiento.split('-');
+      if (partes.length != 3) return null;
+      final anio = int.parse(partes[0]);
+      final mes = int.parse(partes[1]);
+      final dia = int.parse(partes[2]);
+      final nacimiento = DateTime(anio, mes, dia);
+      final hoy = DateTime.now();
+      int edad = hoy.year - nacimiento.year;
+      if (hoy.month < nacimiento.month ||
+          (hoy.month == nacimiento.month && hoy.day < nacimiento.day)) {
+        edad--;
+      }
+      return edad;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final fechaNacimiento = _fechaController.text.trim();
+    final edad = fechaNacimiento.isNotEmpty
+        ? _calcularEdad(fechaNacimiento)
+        : null;
+
+    if (_consentimientoPublicidad) {
+      if (edad == null) {
+        setState(() =>
+            _error = 'Fecha de nacimiento requerida para consentimiento publicitario');
+        return;
+      }
+      if (edad < 18) {
+        setState(() =>
+            _error = 'Debes ser mayor de 18 años para otorgar consentimiento publicitario');
+        return;
+      }
+    }
 
     setState(() {
       _loading = true;
@@ -46,8 +85,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
         password: _passwordController.text,
         nombreCompleto: _nombreController.text.trim(),
         rol: _rol,
-        fechaNacimiento:
-            _fechaController.text.isEmpty ? null : _fechaController.text.trim(),
+        fechaNacimiento: fechaNacimiento.isEmpty ? null : fechaNacimiento,
+        consentimientoPublicidad: _consentimientoPublicidad,
       );
 
       if (!mounted) return;
@@ -155,6 +194,23 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   hintText: 'YYYY-MM-DD',
                 ),
                 keyboardType: TextInputType.datetime,
+              ),
+              const SizedBox(height: 16),
+              CheckboxListTile(
+                title: const Text(
+                  'Acepto recibir información publicitaria',
+                  style: TextStyle(fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Requiere ser mayor de 18 años',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                value: _consentimientoPublicidad,
+                onChanged: (value) {
+                  setState(() => _consentimientoPublicidad = value ?? false);
+                },
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 24),
               SizedBox(

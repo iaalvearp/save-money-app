@@ -21,6 +21,7 @@ class AuthService {
     required String nombreCompleto,
     required String rol,
     String? fechaNacimiento,
+    bool? consentimientoPublicidad,
   }) async {
     final body = <String, dynamic>{
       'email': email,
@@ -31,8 +32,19 @@ class AuthService {
     if (fechaNacimiento != null) {
       body['fecha_nacimiento'] = fechaNacimiento;
     }
+    if (consentimientoPublicidad != null) {
+      body['consentimiento_publicidad'] = consentimientoPublicidad;
+    }
 
     await _api.post('/auth/registro', body: body);
+  }
+
+  Future<void> actualizarConsentimiento({
+    required bool consentimientoPublicidad,
+  }) async {
+    await _api.patch('/auth/consentimiento', body: {
+      'consentimiento_publicidad': consentimientoPublicidad,
+    });
   }
 
   Future<void> login({

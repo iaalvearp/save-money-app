@@ -49,6 +49,17 @@ function nowEpoch(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function calcularEdad(fechaNacimiento: string): number {
+  const hoy = new Date();
+  const nacimiento = new Date(fechaNacimiento);
+  let edad = hoy.getFullYear() - nacimiento.getFullYear();
+  const mes = hoy.getMonth() - nacimiento.getMonth();
+  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+    edad--;
+  }
+  return edad;
+}
+
 async function createAccessToken(
   payload: Record<string, unknown>,
   secret: string
@@ -77,6 +88,7 @@ auth.post("/registro", async (c) => {
     nombre_completo: string;
     rol: string;
     fecha_nacimiento?: string;
+    consentimiento_publicidad?: boolean;
   }>();
 
   const validRoles = ["cliente", "negocio", "organizador"];
@@ -95,19 +107,47 @@ auth.post("/registro", async (c) => {
     return c.json({ error: "El email ya está registrado" }, 409);
   }
 
+  if (body.consentimiento_publicidad === true) {
+    if (!body.fecha_nacimiento) {
+      return c.json(
+        {
+          error:
+            "Fecha de nacimiento requerida para otorgar consentimiento publicitario",
+        },
+        422
+      );
+    }
+    const edad = calcularEdad(body.fecha_nacimiento);
+    if (edad < 18) {
+      return c.json(
+        {
+          error:
+            "Debes ser mayor de 18 años para otorgar consentimiento publicitario",
+        },
+        422
+      );
+    }
+  }
+
+  const consentValue = body.consentimiento_publicidad === true ? 1 : null;
+  const consentFecha =
+    body.consentimiento_publicidad === true ? new Date().toISOString() : null;
+
   const passwordHash = await hashPassword(body.password);
 
   const result = await db
     .prepare(
-      `INSERT INTO usuarios (email, password_hash, nombre_completo, rol, fecha_nacimiento)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO usuarios (email, password_hash, nombre_completo, rol, fecha_nacimiento, consentimiento_publicidad, consentimiento_publicidad_fecha)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       body.email,
       passwordHash,
       body.nombre_completo,
       body.rol,
-      body.fecha_nacimiento || null
+      body.fecha_nacimiento || null,
+      consentValue,
+      consentFecha
     )
     .run();
 
@@ -215,6 +255,84 @@ auth.post("/refresh", async (c) => {
   );
 
   return c.json({ access_token: accessToken });
+});
+
+auth.patch("/consentimiento", async (c) => {
+  const db = c.env.DB;
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "Token requerido" }, 401);
+  }
+
+  const token = authHeader.slice(7);
+  const secret = c.env.JWT_SECRET;
+  const decoded = await verify(token, secret);
+  if (!decoded) {
+    return c.json({ error: "Token inválido o expirado" }, 401);
+  }
+
+  const payload = decoded.payload as unknown as CustomJwtPayload;
+  const userId = Number(payload.sub);
+
+  const body = await c.req.json<{
+    consentimiento_publicidad: boolean;
+  }>();
+
+  const user = await db
+    .prepare(
+      "SELECT id, fecha_nacimiento, consentimiento_publicidad FROM usuarios WHERE id = ?"
+    )
+    .bind(userId)
+    .first<{
+      id: number;
+      fecha_nacimiento: string | null;
+      consentimiento_publicidad: number | null;
+    }>();
+
+  if (!user) {
+    return c.json({ error: "Usuario no encontrado" }, 404);
+  }
+
+  if (body.consentimiento_publicidad === true) {
+    if (!user.fecha_nacimiento) {
+      return c.json(
+        {
+          error:
+            "Fecha de nacimiento requerida para otorgar consentimiento publicitario",
+        },
+        422
+      );
+    }
+    const edad = calcularEdad(user.fecha_nacimiento);
+    if (edad < 18) {
+      return c.json(
+        {
+          error:
+            "Debes ser mayor de 18 años para otorgar consentimiento publicitario",
+        },
+        422
+      );
+    }
+  }
+
+  const consentValue = body.consentimiento_publicidad ? 1 : null;
+  const consentFecha = body.consentimiento_publicidad
+    ? new Date().toISOString()
+    : null;
+
+  await db
+    .prepare(
+      `UPDATE usuarios
+       SET consentimiento_publicidad = ?, consentimiento_publicidad_fecha = ?
+       WHERE id = ?`
+    )
+    .bind(consentValue, consentFecha, userId)
+    .run();
+
+  return c.json({
+    consentimiento_publicidad: body.consentimiento_publicidad,
+    consentimiento_publicidad_fecha: consentFecha,
+  });
 });
 
 export { auth };
