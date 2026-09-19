@@ -12,20 +12,39 @@ interface CustomJwtPayload {
   exp?: number;
 }
 
+const PBKDF2_ITERATIONS = 10_000;
+
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const saltedPassword = encoder.encode(
-    salt.toString() + password
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
   );
-  const hash = await crypto.subtle.digest("SHA-256", saltedPassword);
+
+  const hash = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt,
+      iterations: PBKDF2_ITERATIONS,
+    },
+    keyMaterial,
+    256
+  );
+
   const saltHex = Array.from(salt)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   const hashHex = Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return `${saltHex}:${hashHex}`;
+
+  return `pbkdf2:${PBKDF2_ITERATIONS}:${saltHex}:${hashHex}`;
 }
 
 async function verifyPassword(
@@ -33,6 +52,41 @@ async function verifyPassword(
   storedHash: string
 ): Promise<boolean> {
   const encoder = new TextEncoder();
+
+  if (storedHash.startsWith("pbkdf2:")) {
+    const [, iterStr, saltHex, expectedHash] = storedHash.split(":");
+    const iterations = parseInt(iterStr, 10);
+    const salt = new Uint8Array(
+      saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+    );
+
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
+
+    const hash = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt,
+        iterations,
+      },
+      keyMaterial,
+      256
+    );
+
+    const hashHex = Array.from(new Uint8Array(hash))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    return hashHex === expectedHash;
+  }
+
+  // Legacy SHA-256 format: saltHex:hashHex
   const [saltHex, expectedHash] = storedHash.split(":");
   const salt = new Uint8Array(
     saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
