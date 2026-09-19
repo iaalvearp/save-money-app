@@ -123,6 +123,7 @@ beforeAll(async () => {
     ronda_id INTEGER REFERENCES rondas(id),
     estado TEXT NOT NULL DEFAULT 'entregado' CHECK (estado IN ('entregado','revocado')),
     entregado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    reclamado_en TEXT,
     UNIQUE (usuario_id, ronda_id)
   )`).run();
 
@@ -134,6 +135,14 @@ beforeAll(async () => {
     invited_at TEXT NOT NULL DEFAULT (datetime('now')),
     responded_at TEXT,
     UNIQUE (evento_id, comercio_id)
+  )`).run();
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS puntos_evento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evento_id INTEGER NOT NULL REFERENCES eventos(id),
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    puntos INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (evento_id, usuario_id)
   )`).run();
 
   await db.prepare(`INSERT INTO usuarios (rol, email, password_hash, nombre_completo) VALUES (?, ?, ?, ?)`)
@@ -692,5 +701,338 @@ describe("POST /hunt/eventos/:eventoId/cupones-consolacion", () => {
       .all();
     expect(cupones.results.length).toBe(2);
     expect(cupones.results[0].descuento).toBe(15);
+  });
+});
+
+describe("POST /hunt/eventos/:eventoId/premios/:premioId/reclamar", () => {
+  it("cliente reclama premio con stock y evento activo", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Reclamar", pastDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Reclamo", 3, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { mensaje: string; puntos_ganados: number };
+    expect(body.puntos_ganados).toBe(10);
+
+    const puntos = await db
+      .prepare("SELECT puntos FROM puntos_evento WHERE evento_id = ? AND usuario_id = ?")
+      .bind(eventoId, 3)
+      .first<{ puntos: number }>();
+    expect(puntos?.puntos).toBe(10);
+  });
+
+  it("reclamo repetido del mismo usuario: error 409", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Dup Reclamo", pastDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Dup", 5, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(409);
+  });
+
+  it("reclamo sin compra aprobada: error 403", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada, precio_entrada)
+                VALUES (?, ?, ?, ?, 1, ?)`)
+      .bind(1, "Evento SinEntrada", pastDate(1), futureDate(3), 20.0)
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio SinEntrada", 5, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("entrada aprobada");
+  });
+
+  it("reclamo fuera del horario: error 422", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Futuro", futureDate(5), futureDate(10))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Futuro", 5, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Fuera del horario");
+  });
+
+  it("stock cero: error 422", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Agotado", pastDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Agotado", 1, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    await db
+      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
+                VALUES (?, ?, 'entregado')`)
+      .bind(premioId, 2)
+      .run();
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("sin stock");
+  });
+
+  it("premio revocado no afecta stock ni genera inconsistencias", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Revocado", pastDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Revocado", 2, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    await db
+      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
+                VALUES (?, ?, 'revocado')`)
+      .bind(premioId, 2)
+      .run();
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(201);
+
+    const stockRow = await db
+      .prepare(`SELECT COUNT(*) AS cnt FROM premios_entregados
+                WHERE premio_id = ? AND estado = 'entregado'`)
+      .bind(premioId)
+      .first<{ cnt: number }>();
+    expect(stockRow?.cnt).toBe(1);
+  });
+
+  it("puntos de un evento no visibles en otro", async () => {
+    const app = buildApp();
+    const token = await makeToken(3, "cliente");
+
+    const evento1Res = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento A", pastDate(1), futureDate(3))
+      .run();
+    const evento1Id = evento1Res.meta.last_row_id;
+
+    const premio1Res = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(evento1Id, "Premio A", 5, "principal")
+      .run();
+
+    await app.request(
+      `/hunt/eventos/${evento1Id}/premios/${premio1Res.meta.last_row_id}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    const evento2Res = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento B", pastDate(1), futureDate(3))
+      .run();
+    const evento2Id = evento2Res.meta.last_row_id;
+
+    const puntos2 = await db
+      .prepare("SELECT puntos FROM puntos_evento WHERE evento_id = ? AND usuario_id = ?")
+      .bind(evento2Id, 3)
+      .first<{ puntos: number }>();
+
+    expect(puntos2).toBeNull();
+
+    const puntos1 = await db
+      .prepare("SELECT puntos FROM puntos_evento WHERE evento_id = ? AND usuario_id = ?")
+      .bind(evento1Id, 3)
+      .first<{ puntos: number }>();
+    expect(puntos1?.puntos).toBe(10);
+  });
+
+  it("dos reclamos por el último premio: uno gana, otro recibe 422 por stock agotado", async () => {
+    const app = buildApp();
+    const token3 = await makeToken(3, "cliente");
+    const token4 = await makeToken(4, "cliente");
+
+    await db
+      .prepare(`INSERT INTO usuarios (rol, email, password_hash, nombre_completo) VALUES (?, ?, ?, ?)`)
+      .bind("cliente", "cli4@test.com", "hash", "Cli 4 Test")
+      .run();
+
+    const eventoRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento UltimoPremio", pastDate(1), futureDate(3))
+      .run();
+    const eventoId = eventoRes.meta.last_row_id;
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Último Premio", 1, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    const res1 = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token3}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+    expect(res1.status).toBe(201);
+
+    const res2 = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token4}` },
+        body: JSON.stringify({}),
+      },
+      { DB: db, JWT_SECRET }
+    );
+    expect(res2.status).toBe(422);
+
+    const stockRow = await db
+      .prepare(`SELECT COUNT(*) AS cnt FROM premios_entregados
+                WHERE premio_id = ? AND estado = 'entregado'`)
+      .bind(premioId)
+      .first<{ cnt: number }>();
+    expect(stockRow?.cnt).toBe(1);
   });
 });

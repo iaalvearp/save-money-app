@@ -411,6 +411,110 @@ hunt.post(
 );
 
 hunt.post(
+  "/eventos/:eventoId/premios/:premioId/reclamar",
+  authMiddleware,
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const eventoId = c.req.param("eventoId");
+    const premioId = c.req.param("premioId");
+    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+    const evento = await db
+      .prepare("SELECT id, fecha_inicio, fecha_fin, requiere_entrada FROM eventos WHERE id = ?")
+      .bind(eventoId)
+      .first<{ id: number; fecha_inicio: string; fecha_fin: string; requiere_entrada: number }>();
+
+    if (!evento) {
+      return c.json({ error: "Evento no encontrado" }, 404);
+    }
+
+    const nowDate = new Date(now);
+    if (nowDate < new Date(evento.fecha_inicio) || nowDate > new Date(evento.fecha_fin)) {
+      return c.json({ error: "Fuera del horario del evento" }, 422);
+    }
+
+    if (evento.requiere_entrada) {
+      const entrada = await db
+        .prepare(
+          `SELECT id FROM entradas
+           WHERE evento_id = ? AND cliente_id = ? AND estado = 'aprobada'`
+        )
+        .bind(eventoId, user.sub)
+        .first();
+
+      if (!entrada) {
+        return c.json({ error: "Se requiere una entrada aprobada para reclamar premios" }, 403);
+      }
+    }
+
+    const premio = await db
+      .prepare("SELECT id, ronda_id, stock, nombre FROM premios WHERE id = ? AND evento_id = ?")
+      .bind(premioId, eventoId)
+      .first<{ id: number; ronda_id: number | null; stock: number; nombre: string }>();
+
+    if (!premio) {
+      return c.json({ error: "Premio no encontrado" }, 404);
+    }
+
+    const yaReclamado = await db
+      .prepare(
+        `SELECT id FROM premios_entregados
+         WHERE usuario_id = ? AND ronda_id IS ? AND estado = 'entregado'`
+      )
+      .bind(user.sub, premio.ronda_id ?? null)
+      .first();
+
+    if (yaReclamado) {
+      return c.json({ error: "Ya reclamaste un premio en esta ronda" }, 409);
+    }
+
+    const stockRow = await db
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM premios_entregados
+         WHERE premio_id = ? AND estado = 'entregado'`
+      )
+      .bind(premioId)
+      .first<{ cnt: number }>();
+
+    if (stockRow && stockRow.cnt >= premio.stock) {
+      return c.json({ error: "Premio sin stock disponible" }, 422);
+    }
+
+    try {
+      await db
+        .prepare(
+          `INSERT INTO premios_entregados (premio_id, usuario_id, ronda_id, estado, entregado_en, reclamado_en)
+           VALUES (?, ?, ?, 'entregado', ?, ?)`
+        )
+        .bind(premioId, user.sub, premio.ronda_id ?? null, now, now)
+        .run();
+    } catch (e: any) {
+      if (e?.message?.includes("UNIQUE constraint")) {
+        return c.json({ error: "Ya reclamaste un premio en esta ronda" }, 409);
+      }
+      throw e;
+    }
+
+    await db
+      .prepare(
+        `INSERT INTO puntos_evento (evento_id, usuario_id, puntos)
+         VALUES (?, ?, 10)
+         ON CONFLICT (evento_id, usuario_id)
+         DO UPDATE SET puntos = puntos + 10`
+      )
+      .bind(eventoId, user.sub)
+      .run();
+
+    return c.json({
+      mensaje: `Premio "${premio.nombre}" reclamado`,
+      premio_id: premioId,
+      puntos_ganados: 10,
+    }, 201);
+  }
+);
+
+hunt.post(
   "/eventos/:eventoId/entradas/comprar",
   authMiddleware,
   async (c) => {
