@@ -1,5 +1,10 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
+import {
+  emitirCupon,
+  listarCuponesDeUsuario,
+  canjearCupon,
+} from "../cupones/index";
 
 interface AppEnv {
   Bindings: {
@@ -30,15 +35,6 @@ function haversineDistance(
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-}
-
-function generateQrCode(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "FLASH-";
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
 }
 
 flash.get(
@@ -301,7 +297,6 @@ flash.post(
       );
     }
 
-    const cuponCode = generateQrCode();
     const expiraEn = new Date(
       new Date(promo.termina_en).getTime() + 30 * 24 * 60 * 60 * 1000
     )
@@ -309,23 +304,15 @@ flash.post(
       .replace("T", " ")
       .slice(0, 19);
 
-    const cuponResult = await db
-      .prepare(
-        `INSERT INTO cupones
-         (comercio_id, cliente_id, codigo_qr, estado, tipo, descuento, expira_en, emitido_por)
-         VALUES (?, ?, ?, 'activo', 'flash', ?, ?, ?)`
-      )
-      .bind(
-        promo.comercio_id,
-        user.sub,
-        cuponCode,
-        promo.descuento_porcentaje,
-        expiraEn,
-        user.sub
-      )
-      .run();
-
-    const cuponId = cuponResult.meta.last_row_id;
+    const cupon = await emitirCupon({
+      db,
+      comercioId: promo.comercio_id,
+      clienteId: user.sub,
+      descuento: promo.descuento_porcentaje,
+      expiraEn,
+      tipo: "flash",
+      emitidoPor: user.sub,
+    });
 
     await db
       .prepare(
@@ -333,7 +320,7 @@ flash.post(
          (promocion_id, usuario_id, cupon_id)
          VALUES (?, ?, ?)`
       )
-      .bind(promoId, user.sub, cuponId)
+      .bind(promoId, user.sub, cupon.id)
       .run();
 
     await db
@@ -347,8 +334,8 @@ flash.post(
 
     return c.json({
       cupon: {
-        id: cuponId,
-        codigo_qr: cuponCode,
+        id: cupon.id,
+        codigo_qr: cupon.codigo_qr,
         descuento: promo.descuento_porcentaje,
         comercio: promo.comercio_nombre,
         expira_en: expiraEn,
@@ -365,29 +352,8 @@ flash.get(
     const db = c.env.DB;
     const user = c.get("user");
 
-    await db
-      .prepare(
-        `UPDATE cupones SET estado = 'expirado'
-         WHERE cliente_id = ? AND estado = 'activo'
-         AND expira_en IS NOT NULL AND expira_en < datetime('now')`
-      )
-      .bind(user.sub)
-      .run();
-
-    const result = await db
-      .prepare(
-        `SELECT cu.id, cu.codigo_qr, cu.descuento, cu.estado, cu.tipo,
-                cu.expira_en, cu.canjeado_en, cu.created_at,
-                c.nombre AS comercio_nombre, c.foto_url AS comercio_foto
-         FROM cupones cu
-         JOIN comercios c ON cu.comercio_id = c.id
-         WHERE cu.cliente_id = ?
-         ORDER BY cu.created_at DESC`
-      )
-      .bind(user.sub)
-      .all();
-
-    return c.json({ cupones: result.results });
+    const cupones = await listarCuponesDeUsuario(db, user.sub);
+    return c.json({ cupones });
   }
 );
 
@@ -398,22 +364,17 @@ flash.post(
   async (c) => {
     const db = c.env.DB;
     const user = c.get("user");
-    const cuponId = c.req.param("id");
+    const cuponId = Number(c.req.param("id"));
 
     const cupon = await db
       .prepare(
-        `SELECT cu.*, c.usuario_id AS comercio_owner
+        `SELECT cu.comercio_id, c.usuario_id AS comercio_owner
          FROM cupones cu
          JOIN comercios c ON cu.comercio_id = c.id
          WHERE cu.id = ?`
       )
       .bind(cuponId)
-      .first<{
-        id: number;
-        estado: string;
-        expira_en: string | null;
-        comercio_owner: number;
-      }>();
+      .first<{ comercio_id: number; comercio_owner: number }>();
 
     if (!cupon) {
       return c.json({ error: "Cupón no encontrado" }, 404);
@@ -426,28 +387,16 @@ flash.post(
       );
     }
 
-    if (cupon.estado !== "activo") {
-      return c.json(
-        { error: `Cupón ya fue ${cupon.estado}` },
-        422
-      );
-    }
+    const result = await canjearCupon(db, cuponId, cupon.comercio_id);
 
-    if (cupon.expira_en && new Date(cupon.expira_en) < new Date()) {
-      await db
-        .prepare("UPDATE cupones SET estado = 'expirado' WHERE id = ?")
-        .bind(cuponId)
-        .run();
-      return c.json({ error: "Cupón expirado" }, 422);
+    if (!result.ok) {
+      const status = result.error?.includes("no encontrado")
+        ? 404
+        : result.error?.includes("expirado")
+          ? 422
+          : 422;
+      return c.json({ error: result.error }, status);
     }
-
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-    await db
-      .prepare(
-        `UPDATE cupones SET estado = 'utilizado', canjeado_en = ? WHERE id = ?`
-      )
-      .bind(now, cuponId)
-      .run();
 
     return c.json({ mensaje: "Cupón canjeado exitosamente" });
   }
