@@ -34,7 +34,8 @@ function haversineDistance(
 
 const COMERCIOS_SELECT = `
   SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-         c.es_patrocinado, c.horario, c.foto_url, c.created_at,
+         c.es_patrocinado, c.horario, c.hora_apertura, c.hora_cierre,
+         c.foto_url, c.created_at,
          u.nombre_completo AS propietario
   FROM comercios c
   JOIN usuarios u ON c.usuario_id = u.id
@@ -150,7 +151,8 @@ discover.get("/comercios/:id", async (c) => {
   const comercio = await db
     .prepare(
       `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-              c.es_patrocinado, c.horario, c.foto_url, c.created_at,
+              c.es_patrocinado, c.horario, c.hora_apertura, c.hora_cierre,
+              c.foto_url, c.created_at,
               u.nombre_completo AS propietario, u.email AS propietario_email
        FROM comercios c
        JOIN usuarios u ON c.usuario_id = u.id
@@ -212,8 +214,21 @@ discover.put(
       latitud?: number;
       longitud?: number;
       horario?: string;
+      hora_apertura?: string;
+      hora_cierre?: string;
       foto_url?: string;
     }>();
+
+    if (body.hora_apertura !== undefined && body.hora_apertura !== null) {
+      if (!/^\d{2}:\d{2}$/.test(body.hora_apertura)) {
+        return c.json({ error: "hora_apertura debe tener formato HH:MM" }, 400);
+      }
+    }
+    if (body.hora_cierre !== undefined && body.hora_cierre !== null) {
+      if (!/^\d{2}:\d{2}$/.test(body.hora_cierre)) {
+        return c.json({ error: "hora_cierre debe tener formato HH:MM" }, 400);
+      }
+    }
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -238,6 +253,14 @@ discover.put(
       fields.push("horario = ?");
       values.push(body.horario);
     }
+    if (body.hora_apertura !== undefined) {
+      fields.push("hora_apertura = ?");
+      values.push(body.hora_apertura);
+    }
+    if (body.hora_cierre !== undefined) {
+      fields.push("hora_cierre = ?");
+      values.push(body.hora_cierre);
+    }
     if (body.foto_url !== undefined) {
       fields.push("foto_url = ?");
       values.push(body.foto_url);
@@ -259,7 +282,8 @@ discover.put(
     const updated = await db
       .prepare(
         `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-                c.es_patrocinado, c.horario, c.foto_url, c.created_at
+                c.es_patrocinado, c.horario, c.hora_apertura, c.hora_cierre,
+                c.foto_url, c.created_at
          FROM comercios c WHERE c.id = ?`
       )
       .bind(id)
@@ -283,6 +307,8 @@ discover.post(
       latitud?: number;
       longitud?: number;
       horario?: string;
+      hora_apertura?: string;
+      hora_cierre?: string;
       foto_url?: string;
     }>();
 
@@ -290,10 +316,21 @@ discover.post(
       return c.json({ error: "Nombre del comercio es requerido" }, 400);
     }
 
+    if (body.hora_apertura !== undefined && body.hora_apertura !== null) {
+      if (!/^\d{2}:\d{2}$/.test(body.hora_apertura)) {
+        return c.json({ error: "hora_apertura debe tener formato HH:MM" }, 400);
+      }
+    }
+    if (body.hora_cierre !== undefined && body.hora_cierre !== null) {
+      if (!/^\d{2}:\d{2}$/.test(body.hora_cierre)) {
+        return c.json({ error: "hora_cierre debe tener formato HH:MM" }, 400);
+      }
+    }
+
     const result = await db
       .prepare(
-        `INSERT INTO comercios (usuario_id, nombre, categoria, latitud, longitud, horario, foto_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO comercios (usuario_id, nombre, categoria, latitud, longitud, horario, hora_apertura, hora_cierre, foto_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         user.sub,
@@ -302,6 +339,8 @@ discover.post(
         body.latitud ?? null,
         body.longitud ?? null,
         body.horario || null,
+        body.hora_apertura || null,
+        body.hora_cierre || null,
         body.foto_url || null
       )
       .run();
@@ -311,7 +350,8 @@ discover.post(
     const created = await db
       .prepare(
         `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-                c.es_patrocinado, c.horario, c.foto_url, c.created_at
+                c.es_patrocinado, c.horario, c.hora_apertura, c.hora_cierre,
+                c.foto_url, c.created_at
          FROM comercios c WHERE c.id = ?`
       )
       .bind(comercioId)
@@ -332,7 +372,8 @@ discover.get(
     const result = await db
       .prepare(
         `SELECT c.id, c.nombre, c.categoria, c.ruc, c.latitud, c.longitud,
-                c.es_patrocinado, c.horario, c.foto_url, c.created_at
+                c.es_patrocinado, c.horario, c.hora_apertura, c.hora_cierre,
+                c.foto_url, c.created_at
          FROM comercios c
          WHERE c.usuario_id = ?
          ORDER BY c.nombre ASC`

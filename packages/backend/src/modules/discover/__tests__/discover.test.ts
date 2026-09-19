@@ -42,6 +42,8 @@ beforeAll(async () => {
         longitud REAL,
         es_patrocinado INTEGER NOT NULL DEFAULT 0,
         horario TEXT,
+        hora_apertura TEXT,
+        hora_cierre TEXT,
         foto_url TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`
