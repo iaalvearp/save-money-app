@@ -1,4 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { Hono } from "hono";
+import { authMiddleware, requireRole } from "../auth/middleware";
 
 interface EmitirCuponParams {
   db: D1Database;
@@ -87,7 +89,7 @@ export async function listarCuponesDeUsuario(
     .bind(clienteId)
     .all();
 
-  return result.results as CuponConComercio[];
+  return result.results as unknown as CuponConComercio[];
 }
 
 export async function canjearCupon(
@@ -143,3 +145,69 @@ export async function canjearCupon(
 
   return { ok: true };
 }
+
+interface AppEnv {
+  Bindings: {
+    DB: D1Database;
+    JWT_SECRET: string;
+  };
+  Variables: {
+    user: { sub: number; rol: string };
+  };
+}
+
+const cupones = new Hono<AppEnv>();
+
+cupones.get(
+  "/mis-cupones",
+  authMiddleware,
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const result = await listarCuponesDeUsuario(db, user.sub);
+    return c.json({ cupones: result });
+  }
+);
+
+cupones.post(
+  "/:id/canjear",
+  authMiddleware,
+  requireRole("negocio", "admin"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const cuponId = Number(c.req.param("id"));
+
+    const cupon = await db
+      .prepare(
+        `SELECT cu.comercio_id, c.usuario_id AS comercio_owner
+         FROM cupones cu
+         JOIN comercios c ON cu.comercio_id = c.id
+         WHERE cu.id = ?`
+      )
+      .bind(cuponId)
+      .first<{ comercio_id: number; comercio_owner: number }>();
+
+    if (!cupon) {
+      return c.json({ error: "Cupon no encontrado" }, 404);
+    }
+
+    if (user.rol !== "admin" && cupon.comercio_owner !== user.sub) {
+      return c.json(
+        { error: "No tienes permiso para canjear este cupon" },
+        403
+      );
+    }
+
+    const result = await canjearCupon(db, cuponId, cupon.comercio_id);
+
+    if (!result.ok) {
+      const status = result.error?.includes("no encontrado") ? 404 : 422;
+      return c.json({ error: result.error }, status);
+    }
+
+    return c.json({ mensaje: "Cupon canjeado exitosamente" });
+  }
+);
+
+export { cupones };
