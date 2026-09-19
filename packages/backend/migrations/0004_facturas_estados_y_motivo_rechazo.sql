@@ -8,8 +8,6 @@
 
 PRAGMA foreign_keys = OFF;
 
-BEGIN TRANSACTION;
-
 CREATE TABLE facturas_nueva (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   cliente_id INTEGER NOT NULL REFERENCES usuarios(id),
@@ -53,5 +51,3 @@ DROP TABLE facturas;
 ALTER TABLE facturas_nueva RENAME TO facturas;
 
 PRAGMA foreign_keys = ON;
-
-COMMIT;
