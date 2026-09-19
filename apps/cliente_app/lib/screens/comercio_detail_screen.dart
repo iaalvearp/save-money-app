@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/comercios_service.dart';
 import 'facturacion_screen.dart';
@@ -352,19 +353,19 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            if (comercio.latitud != null && comercio.longitud != null) ...[
-              _InfoRow(
-                icon: Icons.location_on,
-                label: 'Latitud',
-                value: '${comercio.latitud}',
-              ),
-              const SizedBox(height: 8),
-              _InfoRow(
-                icon: Icons.location_on,
-                label: 'Longitud',
-                value: '${comercio.longitud}',
-              ),
-            ] else
+            if (comercio.latitud != null && comercio.longitud != null)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _abrirGoogleMaps(comercio),
+                  icon: const Icon(Icons.directions),
+                  label: const Text('Cómo llegar'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              )
+            else
               Text(
                 'Sin ubicación registrada',
                 style: TextStyle(color: Colors.grey[500]),
@@ -373,6 +374,20 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _abrirGoogleMaps(Comercio comercio) async {
+    final lat = comercio.latitud;
+    final lng = comercio.longitud;
+    if (lat == null || lng == null) return;
+
+    final url = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
   }
 
   Widget _buildRegistrarButton() {
