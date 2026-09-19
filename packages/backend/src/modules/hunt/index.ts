@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
+import { emitirCupon } from "../cupones/index";
 
 interface AppEnv {
   Bindings: {
@@ -12,15 +13,6 @@ interface AppEnv {
 }
 
 const hunt = new Hono<AppEnv>();
-
-function generateQrCode(prefix: string): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = `${prefix}-`;
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
 
 hunt.get(
   "/eventos",
@@ -746,16 +738,16 @@ hunt.post(
     const cuponesCreados: number[] = [];
 
     for (const userId of body.usuario_ids) {
-      const code = generateQrCode("HUNT");
-      const result = await db
-        .prepare(
-          `INSERT INTO cupones
-           (comercio_id, cliente_id, codigo_qr, estado, tipo, descuento, expira_en, emitido_por)
-           VALUES (?, ?, ?, 'activo', 'hunt', ?, ?, ?)`
-        )
-        .bind(body.comercio_id, userId, code, body.descuento, expiraEn, user.sub)
-        .run();
-      cuponesCreados.push(result.meta.last_row_id as number);
+      const cupon = await emitirCupon({
+        db,
+        comercioId: body.comercio_id,
+        clienteId: userId,
+        descuento: body.descuento,
+        expiraEn,
+        tipo: "hunt",
+        emitidoPor: user.sub,
+      });
+      cuponesCreados.push(cupon.id);
     }
 
     return c.json({
