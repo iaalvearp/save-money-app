@@ -159,6 +159,7 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
   }
 
   Widget _buildHeader(Comercio comercio) {
+    final estaAbierto = _estaAbierto(comercio);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -193,12 +194,82 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        Text(
-          comercio.categoria ?? 'Sin categoría',
-          style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+        Row(
+          children: [
+            Text(
+              comercio.categoria ?? 'Sin categoría',
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            if (comercio.horaApertura != null && comercio.horaCierre != null) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: estaAbierto ? Colors.green[50] : Colors.red[50],
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: estaAbierto ? Colors.green[300]! : Colors.red[300]!,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      estaAbierto ? Icons.check_circle : Icons.cancel,
+                      size: 14,
+                      color: estaAbierto ? Colors.green[700] : Colors.red[700],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      estaAbierto ? 'Abierto' : 'Cerrado',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: estaAbierto ? Colors.green[700] : Colors.red[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
       ],
     );
+  }
+
+  bool _estaAbierto(Comercio comercio) {
+    if (comercio.horaApertura == null || comercio.horaCierre == null) {
+      return false;
+    }
+    try {
+      final ahora = TimeOfDay.now();
+      final apertura = _parseTime(comercio.horaApertura!);
+      final cierre = _parseTime(comercio.horaCierre!);
+      if (apertura == null || cierre == null) return false;
+
+      final ahoraMin = ahora.hour * 60 + ahora.minute;
+      final aperturaMin = apertura.hour * 60 + apertura.minute;
+      final cierreMin = cierre.hour * 60 + cierre.minute;
+
+      if (aperturaMin <= cierreMin) {
+        return ahoraMin >= aperturaMin && ahoraMin < cierreMin;
+      } else {
+        return ahoraMin >= aperturaMin || ahoraMin < cierreMin;
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  TimeOfDay? _parseTime(String hhmm) {
+    final parts = hhmm.split(':');
+    if (parts.length != 2) return null;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return TimeOfDay(hour: hour, minute: minute);
   }
 
   Widget _buildPromocionesSection() {

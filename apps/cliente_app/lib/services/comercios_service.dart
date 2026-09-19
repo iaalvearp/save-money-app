@@ -9,6 +9,8 @@ class Comercio {
   final double? longitud;
   final bool esPatrocinado;
   final String? horario;
+  final String? horaApertura;
+  final String? horaCierre;
   final String? fotoUrl;
   final String? propietario;
   final double? distanciaKm;
@@ -22,6 +24,8 @@ class Comercio {
     this.longitud,
     this.esPatrocinado = false,
     this.horario,
+    this.horaApertura,
+    this.horaCierre,
     this.fotoUrl,
     this.propietario,
     this.distanciaKm,
@@ -38,6 +42,8 @@ class Comercio {
       esPatrocinado: json['es_patrocinado'] == true ||
           json['es_patrocinado'] == 1,
       horario: json['horario'] as String?,
+      horaApertura: json['hora_apertura'] as String?,
+      horaCierre: json['hora_cierre'] as String?,
       fotoUrl: json['foto_url'] as String?,
       propietario: json['propietario'] as String?,
       distanciaKm: (json['distancia_km'] as num?)?.toDouble(),
@@ -142,6 +148,8 @@ class ComerciosService {
     double? latitud,
     double? longitud,
     String? horario,
+    String? horaApertura,
+    String? horaCierre,
     String? fotoUrl,
   }) async {
     final response = await _api.post('/comercios', body: {
@@ -150,6 +158,8 @@ class ComerciosService {
       if (latitud != null) 'latitud': latitud,
       if (longitud != null) 'longitud': longitud,
       if (horario != null) 'horario': horario,
+      if (horaApertura != null) 'hora_apertura': horaApertura,
+      if (horaCierre != null) 'hora_cierre': horaCierre,
       if (fotoUrl != null) 'foto_url': fotoUrl,
     });
     return Comercio.fromJson(response['comercio'] as Map<String, dynamic>);
@@ -161,6 +171,8 @@ class ComerciosService {
     double? latitud,
     double? longitud,
     String? horario,
+    String? horaApertura,
+    String? horaCierre,
     String? fotoUrl,
   }) async {
     final body = <String, dynamic>{};
@@ -169,6 +181,8 @@ class ComerciosService {
     if (latitud != null) body['latitud'] = latitud;
     if (longitud != null) body['longitud'] = longitud;
     if (horario != null) body['horario'] = horario;
+    if (horaApertura != null) body['hora_apertura'] = horaApertura;
+    if (horaCierre != null) body['hora_cierre'] = horaCierre;
     if (fotoUrl != null) body['foto_url'] = fotoUrl;
 
     final response = await _api.patch('/comercios/$id', body: body);
