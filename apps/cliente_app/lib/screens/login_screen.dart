@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
-import 'home_screen.dart';
 import 'registro_screen.dart';
+import 'role_navigation.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,8 +44,12 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (!mounted) return;
+      final rol = await _authService.rolActual();
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        MaterialPageRoute(
+          builder: (_) => pantallaInicialPorRol(rol),
+        ),
       );
     } on ApiException catch (e) {
       setState(() => _error = e.message);

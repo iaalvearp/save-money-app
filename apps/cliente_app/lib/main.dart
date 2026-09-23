@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
 
 void main() {
@@ -31,18 +31,27 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  late Future<bool> _hasSession;
+  late Future<Widget> _pantallaInicial;
 
   @override
   void initState() {
     super.initState();
-    _hasSession = AuthService().hasSession();
+    _pantallaInicial = _resolverPantallaInicial();
+  }
+
+  Future<Widget> _resolverPantallaInicial() async {
+    final auth = AuthService();
+    final hasSession = await auth.hasSession();
+    if (!hasSession) return const LoginScreen();
+    // TODO: implementar refresh automático del access token vencido
+    final rol = await auth.rolActual();
+    return pantallaInicialPorRol(rol);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: _hasSession,
+    return FutureBuilder<Widget>(
+      future: _pantallaInicial,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
@@ -50,14 +59,7 @@ class _SessionGateState extends State<SessionGate> {
           );
         }
 
-        final hasSession = snapshot.data == true;
-
-        if (hasSession) {
-          // TODO: implementar refresh automático del access token vencido
-          return const HomeScreen();
-        }
-
-        return const LoginScreen();
+        return snapshot.data ?? const LoginScreen();
       },
     );
   }
