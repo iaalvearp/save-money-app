@@ -145,6 +145,7 @@ class ComerciosService {
   Future<Comercio> crear({
     required String nombre,
     String? categoria,
+    String? ruc,
     double? latitud,
     double? longitud,
     String? horario,
@@ -156,6 +157,7 @@ class ComerciosService {
     final response = await _api.post('/comercios', body: {
       'nombre': nombre,
       if (categoria != null) 'categoria': categoria,
+      if (ruc != null) 'ruc': ruc,
       if (latitud != null) 'latitud': latitud,
       if (longitud != null) 'longitud': longitud,
       if (horario != null) 'horario': horario,
@@ -169,6 +171,7 @@ class ComerciosService {
   Future<Comercio> actualizar(int id, {
     String? nombre,
     String? categoria,
+    String? ruc,
     double? latitud,
     double? longitud,
     String? horario,
@@ -180,6 +183,7 @@ class ComerciosService {
     final body = <String, dynamic>{};
     if (nombre != null) body['nombre'] = nombre;
     if (categoria != null) body['categoria'] = categoria;
+    if (ruc != null) body['ruc'] = ruc;
     if (latitud != null) body['latitud'] = latitud;
     if (longitud != null) body['longitud'] = longitud;
     if (horario != null) body['horario'] = horario;

@@ -33,6 +33,8 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
       text: widget.comercio?.nombre ?? '');
   late final _categoriaController = TextEditingController(
       text: widget.comercio?.categoria ?? '');
+  late final _rucController = TextEditingController(
+      text: widget.comercio?.ruc ?? '');
   late final _latitudController = TextEditingController(
       text: widget.comercio?.latitud?.toString() ?? '');
   late final _longitudController = TextEditingController(
@@ -60,6 +62,7 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
   void dispose() {
     _nombreController.dispose();
     _categoriaController.dispose();
+    _rucController.dispose();
     _latitudController.dispose();
     _longitudController.dispose();
     _horarioController.dispose();
@@ -114,6 +117,7 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
         await _servicio.crear(
           nombre: _nombreController.text.trim(),
           categoria: _normalizarVacio(_categoriaController.text),
+          ruc: _normalizarVacio(_rucController.text),
           latitud: latitud,
           longitud: longitud,
           horario: _normalizarVacio(_horarioController.text),
@@ -127,6 +131,7 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
           comercio.id,
           nombre: _nombreController.text.trim(),
           categoria: _normalizarVacio(_categoriaController.text),
+          ruc: _normalizarVacio(_rucController.text),
           latitud: latitud,
           longitud: longitud,
           horario: _normalizarVacio(_horarioController.text),
@@ -194,6 +199,18 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
                   labelText: 'Categoría',
                   border: OutlineInputBorder(),
                 ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _rucController,
+                decoration: const InputDecoration(
+                  labelText: 'RUC',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                ],
               ),
               const SizedBox(height: 16),
               Row(
