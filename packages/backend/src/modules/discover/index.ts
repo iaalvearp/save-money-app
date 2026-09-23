@@ -211,6 +211,7 @@ discover.put(
     const body = await c.req.json<{
       nombre?: string;
       categoria?: string;
+      ruc?: string;
       latitud?: number;
       longitud?: number;
       horario?: string;
@@ -240,6 +241,10 @@ discover.put(
     if (body.categoria !== undefined) {
       fields.push("categoria = ?");
       values.push(body.categoria);
+    }
+    if (body.ruc !== undefined) {
+      fields.push("ruc = ?");
+      values.push(body.ruc);
     }
     if (body.latitud !== undefined) {
       fields.push("latitud = ?");
@@ -304,6 +309,7 @@ discover.post(
     const body = await c.req.json<{
       nombre: string;
       categoria?: string;
+      ruc?: string;
       latitud?: number;
       longitud?: number;
       horario?: string;
@@ -329,13 +335,14 @@ discover.post(
 
     const result = await db
       .prepare(
-        `INSERT INTO comercios (usuario_id, nombre, categoria, latitud, longitud, horario, hora_apertura, hora_cierre, foto_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO comercios (usuario_id, nombre, categoria, ruc, latitud, longitud, horario, hora_apertura, hora_cierre, foto_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         user.sub,
         body.nombre.trim(),
         body.categoria || null,
+        body.ruc || null,
         body.latitud ?? null,
         body.longitud ?? null,
         body.horario || null,
