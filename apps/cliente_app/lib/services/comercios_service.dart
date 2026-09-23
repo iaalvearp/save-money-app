@@ -134,8 +134,8 @@ class ComerciosService {
     return response;
   }
 
-  Future<List<Comercio>> misComercios() async {
-    final response = await _api.get('/mis-comercios');
+  Future<List<Comercio>> misComercios({String? token}) async {
+    final response = await _api.get('/mis-comercios', token: token);
     final comerciosJson = response['comercios'] as List<dynamic>? ?? [];
     return comerciosJson
         .map((json) => Comercio.fromJson(json as Map<String, dynamic>))
@@ -151,6 +151,7 @@ class ComerciosService {
     String? horaApertura,
     String? horaCierre,
     String? fotoUrl,
+    String? token,
   }) async {
     final response = await _api.post('/comercios', body: {
       'nombre': nombre,
@@ -161,7 +162,7 @@ class ComerciosService {
       if (horaApertura != null) 'hora_apertura': horaApertura,
       if (horaCierre != null) 'hora_cierre': horaCierre,
       if (fotoUrl != null) 'foto_url': fotoUrl,
-    });
+    }, token: token);
     return Comercio.fromJson(response['comercio'] as Map<String, dynamic>);
   }
 
@@ -174,6 +175,7 @@ class ComerciosService {
     String? horaApertura,
     String? horaCierre,
     String? fotoUrl,
+    String? token,
   }) async {
     final body = <String, dynamic>{};
     if (nombre != null) body['nombre'] = nombre;
@@ -185,7 +187,7 @@ class ComerciosService {
     if (horaCierre != null) body['hora_cierre'] = horaCierre;
     if (fotoUrl != null) body['foto_url'] = fotoUrl;
 
-    final response = await _api.patch('/comercios/$id', body: body);
+    final response = await _api.put('/comercios/$id', body: body, token: token);
     return Comercio.fromJson(response['comercio'] as Map<String, dynamic>);
   }
 }
