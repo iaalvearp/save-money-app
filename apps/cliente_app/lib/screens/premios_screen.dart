@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
 import 'crear_premio_screen.dart';
+import 'cupon_consolacion_screen.dart';
 
 class PremiosScreen extends StatefulWidget {
   final int eventoId;
@@ -99,13 +100,34 @@ class _PremiosScreenState extends State<PremiosScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Premios')),
+      appBar: AppBar(
+        title: const Text('Premios'),
+        actions: [
+          IconButton(
+            tooltip: 'Cupón de consolación',
+            icon: const Icon(Icons.confirmation_num_outlined),
+            onPressed: _abrirCuponConsolacion,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _agregarPremio,
         icon: const Icon(Icons.add),
         label: const Text('Nuevo premio'),
       ),
       body: _buildBody(),
+    );
+  }
+
+  Future<void> _abrirCuponConsolacion() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CuponConsolacionScreen(
+          eventoId: widget.eventoId,
+          servicio: _servicio,
+          auth: _auth,
+        ),
+      ),
     );
   }
 

@@ -4,11 +4,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:cliente_app/screens/crear_evento_screen.dart';
+import 'package:cliente_app/screens/cupon_consolacion_screen.dart';
 import 'package:cliente_app/screens/organizador_home_screen.dart';
 import 'package:cliente_app/screens/premios_screen.dart';
 import 'package:cliente_app/screens/revision_entradas_screen.dart';
 import 'package:cliente_app/services/api_client.dart';
 import 'package:cliente_app/services/auth_service.dart';
+import 'package:cliente_app/services/comercios_service.dart';
 import 'package:cliente_app/services/hunt_service.dart';
 
 class _FakeAuth extends AuthService {
@@ -469,6 +471,142 @@ void main() {
       expect(cuerpo, contains('"usuario_id":9'));
       expect(
         find.text('Premio marcado como entregado'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('CuponConsolacionScreen', () {
+    Future<void> montarCon(WidgetTester tester, MockClient mock) async {
+      final servicio = _servicioHuntCon(mock);
+      final comercios = ComerciosService(
+        api: ApiClient(baseUrl: 'http://test', httpClient: mock),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CuponConsolacionScreen(
+            eventoId: 1,
+            servicio: servicio,
+            comerciosServicio: comercios,
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    String bodyParticipantes() {
+      return '{"participantes": ['
+          '{"id": 3, "nombre_completo": "Ana López", '
+          '"email": "ana@test.com"}, '
+          '{"id": 4, "nombre_completo": "Luis Núñez", '
+          '"email": "luis@test.com"}]}';
+    }
+
+    String bodyComercios() {
+      return '{"comercios": [{"id": 1, "nombre": "Café Hunt"}]}';
+    }
+
+    testWidgets('muestra mensaje claro cuando no hay participantes sin premio',
+        (WidgetTester tester) async {
+      await montarCon(
+        tester,
+        MockClient((request) async {
+          if (request.url.path.endsWith('/participantes-sin-premio')) {
+            return http.Response(
+              '{"participantes": []}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            bodyComercios(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      expect(
+        find.text('Aún no hay participantes sin premio'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('emite cupones hacia /cupones-consolacion con los seleccionados',
+        (WidgetTester tester) async {
+      String? ruta;
+      String? cuerpo;
+      final servicio = _servicioHuntCon(
+        MockClient((request) async {
+          if (request.method == 'POST') {
+            ruta = request.url.path;
+            cuerpo = request.body;
+            return http.Response(
+              '{"cupones_creados": 2, "expira_en": "2026-10-08 20:00:00"}',
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.url.path.endsWith('/participantes-sin-premio')) {
+            return http.Response(
+              bodyParticipantes(),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            bodyComercios(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final comercios = ComerciosService(
+        api: ApiClient(baseUrl: 'http://test', httpClient: MockClient(
+          (request) async {
+            return http.Response(
+              bodyComercios(),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          },
+        )),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CuponConsolacionScreen(
+            eventoId: 1,
+            servicio: servicio,
+            comerciosServicio: comercios,
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Ana López'));
+      await tester.tap(find.text('Ana López'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Luis Núñez'));
+      await tester.tap(find.text('Luis Núñez'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Descuento (%)'),
+        '15',
+      );
+      await tester.ensureVisible(find.text('Emitir cupones'));
+      await tester.tap(find.text('Emitir cupones'));
+      await tester.pumpAndSettle();
+
+      expect(ruta, '/hunt/eventos/1/cupones-consolacion');
+      expect(cuerpo, contains('"comercio_id":1'));
+      expect(cuerpo, contains('"usuario_ids":[3,4]'));
+      expect(cuerpo, contains('"descuento":15'));
+      expect(
+        find.text('Cupones emitidos para 2 participante(s)'),
         findsOneWidget,
       );
     });
