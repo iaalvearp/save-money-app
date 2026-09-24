@@ -208,4 +208,15 @@ class FlashService {
         .map((c) => Cupon.fromJson(c as Map<String, dynamic>))
         .toList();
   }
+
+  Future<Map<String, dynamic>> canjearCupon(
+    String codigoQr, {
+    String? token,
+  }) async {
+    return _api.post(
+      '/cupones/$codigoQr/canjear',
+      body: {},
+      token: token,
+    );
+  }
 }
