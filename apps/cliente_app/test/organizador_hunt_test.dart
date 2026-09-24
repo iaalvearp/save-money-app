@@ -5,6 +5,7 @@ import 'package:http/testing.dart';
 
 import 'package:cliente_app/screens/crear_evento_screen.dart';
 import 'package:cliente_app/screens/organizador_home_screen.dart';
+import 'package:cliente_app/screens/premios_screen.dart';
 import 'package:cliente_app/screens/revision_entradas_screen.dart';
 import 'package:cliente_app/services/api_client.dart';
 import 'package:cliente_app/services/auth_service.dart';
@@ -353,6 +354,123 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Sin comprobante'), findsNothing);
+    });
+  });
+
+  group('PremiosScreen', () {
+    String bodyEvento() {
+      return '{"evento": {"id": 1, "organizador_id": 7, '
+          '"nombre": "Mi Hunt", '
+          '"fecha_inicio": "2026-10-01 19:00:00", '
+          '"fecha_fin": "2026-10-01 20:00:00"}, '
+          '"premios": [{"id": 5, "evento_id": 1, '
+          '"nombre": "Premio Mayor", "stock": 3, '
+          '"tipo": "principal", "entregados": 1}], "rondas": [], '
+          '"sponsors": []}';
+    }
+
+    testWidgets('muestra mensaje claro cuando no hay ganadores que entregar',
+        (WidgetTester tester) async {
+      final servicio = _servicioHuntCon(
+        MockClient((request) async {
+          if (request.url.path.endsWith('/ganadores')) {
+            return http.Response(
+              '{"ganadores": []}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            bodyEvento(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PremiosScreen(
+            eventoId: 1,
+            servicio: servicio,
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Marcar como entregado'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Nadie ha reclamado este premio todavía'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('entrega un premio a un ganador revocado y llama a /entregar',
+        (WidgetTester tester) async {
+      String? ruta;
+      String? cuerpo;
+      final servicio = _servicioHuntCon(
+        MockClient((request) async {
+          if (request.method == 'POST') {
+            ruta = request.url.path;
+            cuerpo = request.body;
+            return http.Response(
+              '{"mensaje": "Premio entregado"}',
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (request.url.path.endsWith('/ganadores')) {
+            return http.Response(
+              '{"ganadores": [{"id": 1, "premio_id": 5, '
+              '"usuario_id": 9, "estado": "revocado", '
+              '"usuario_nombre": "Luis Núñez", '
+              '"usuario_email": "luis@test.com"}, '
+              '{"id": 2, "premio_id": 5, '
+              '"usuario_id": 3, "estado": "entregado", '
+              '"usuario_nombre": "Ana López", '
+              '"usuario_email": "ana@test.com"}]}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            bodyEvento(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PremiosScreen(
+            eventoId: 1,
+            servicio: servicio,
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Marcar como entregado'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Entregado'), findsOneWidget);
+      expect(find.text('Revocado'), findsOneWidget);
+
+      await tester.tap(find.text('Entregar'));
+      await tester.pumpAndSettle();
+
+      expect(ruta, '/hunt/eventos/1/premios/5/entregar');
+      expect(cuerpo, contains('"usuario_id":9'));
+      expect(
+        find.text('Premio marcado como entregado'),
+        findsOneWidget,
+      );
     });
   });
 }
