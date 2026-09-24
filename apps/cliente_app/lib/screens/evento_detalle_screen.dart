@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
 import 'agregar_ronda_screen.dart';
 import 'premios_screen.dart';
+import 'revision_entradas_screen.dart';
 import 'sponsors_screen.dart';
 
 class EventoDetalleScreen extends StatefulWidget {
@@ -144,6 +145,24 @@ class _EventoDetalleScreenState extends State<EventoDetalleScreen> {
           _buildPremiosSection(),
           const Divider(height: 24),
           _buildSponsorsSection(),
+          if (evento.requiereEntrada) ...[
+            const Divider(height: 24),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => RevisionEntradasScreen(
+                      eventoId: widget.eventoId,
+                      servicio: _servicio,
+                      auth: _auth,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.fact_check),
+              label: const Text('Revisar entradas'),
+            ),
+          ],
         ],
       ),
     );
