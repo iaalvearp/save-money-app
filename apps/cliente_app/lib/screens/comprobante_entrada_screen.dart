@@ -75,8 +75,8 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
       source: source,
-      imageQuality: 85,
-      maxWidth: 1920,
+      imageQuality: 60,
+      maxWidth: 1280,
     );
     if (xFile == null) return null;
     return File(xFile.path).readAsBytes();
