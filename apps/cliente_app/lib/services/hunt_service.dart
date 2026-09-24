@@ -171,6 +171,66 @@ class Entrada {
   }
 }
 
+class GanadorPremio {
+  final int id;
+  final int premioId;
+  final int usuarioId;
+  final int? rondaId;
+  final String estado;
+  final String? entregadoEn;
+  final String? reclamadoEn;
+  final String? usuarioNombre;
+  final String? usuarioEmail;
+
+  GanadorPremio({
+    required this.id,
+    required this.premioId,
+    required this.usuarioId,
+    this.rondaId,
+    required this.estado,
+    this.entregadoEn,
+    this.reclamadoEn,
+    this.usuarioNombre,
+    this.usuarioEmail,
+  });
+
+  factory GanadorPremio.fromJson(Map<String, dynamic> json) {
+    return GanadorPremio(
+      id: json['id'] as int,
+      premioId: json['premio_id'] as int,
+      usuarioId: json['usuario_id'] as int,
+      rondaId: json['ronda_id'] as int?,
+      estado: json['estado'] as String,
+      entregadoEn: json['entregado_en'] as String?,
+      reclamadoEn: json['reclamado_en'] as String?,
+      usuarioNombre: json['usuario_nombre'] as String?,
+      usuarioEmail: json['usuario_email'] as String?,
+    );
+  }
+
+  bool get estaEntregado => estado == 'entregado';
+}
+
+class ParticipanteSinPremio {
+  final int id;
+  final String nombreCompleto;
+  final String email;
+
+  ParticipanteSinPremio({
+    required this.id,
+    required this.nombreCompleto,
+    required this.email,
+  });
+
+  factory ParticipanteSinPremio.fromJson(Map<String, dynamic> json) {
+    return ParticipanteSinPremio(
+      id: json['id'] as int,
+      nombreCompleto: json['nombre_completo'] as String,
+      email: json['email'] as String,
+    );
+  }
+}
+
 final formatearFecha = (DateTime dt) =>
     dt.toUtc().toIso8601String().replaceFirst('T', ' ').substring(0, 19);
 
@@ -331,5 +391,34 @@ class HuntService {
       },
       token: token,
     );
+  }
+
+  Future<List<GanadorPremio>> ganadoresDePremio(
+    int eventoId,
+    int premioId, {
+    String? token,
+  }) async {
+    final response = await _api.get(
+      '/hunt/eventos/$eventoId/premios/$premioId/ganadores',
+      token: token,
+    );
+    final ganadores = response['ganadores'] as List<dynamic>? ?? [];
+    return ganadores
+        .map((g) => GanadorPremio.fromJson(g as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<ParticipanteSinPremio>> participantesSinPremio(
+    int eventoId, {
+    String? token,
+  }) async {
+    final response = await _api.get(
+      '/hunt/eventos/$eventoId/participantes-sin-premio',
+      token: token,
+    );
+    final participantes = response['participantes'] as List<dynamic>? ?? [];
+    return participantes
+        .map((p) => ParticipanteSinPremio.fromJson(p as Map<String, dynamic>))
+        .toList();
   }
 }
