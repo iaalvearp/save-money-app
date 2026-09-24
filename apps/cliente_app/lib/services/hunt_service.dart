@@ -330,8 +330,40 @@ class HuntService {
     return Premio.fromJson(response['premio'] as Map<String, dynamic>);
   }
 
-  Future<void> comprarEntrada(int eventoId) async {
-    await _api.post('/hunt/eventos/$eventoId/entradas/comprar', body: {});
+  Future<Entrada> comprarEntrada(
+    int eventoId, {
+    String? token,
+  }) async {
+    final response = await _api.post(
+      '/hunt/eventos/$eventoId/entradas/comprar',
+      body: {},
+      token: token,
+    );
+    return Entrada.fromJson(response['entrada'] as Map<String, dynamic>);
+  }
+
+  Future<void> subirComprobante(
+    int entradaId, {
+    required String foto,
+    String? token,
+  }) async {
+    await _api.post(
+      '/hunt/entradas/$entradaId/comprobante',
+      body: {'comprobante_foto': foto},
+      token: token,
+    );
+  }
+
+  Future<Map<String, dynamic>> reclamarPremio(
+    int eventoId,
+    int premioId, {
+    String? token,
+  }) async {
+    return _api.post(
+      '/hunt/eventos/$eventoId/premios/$premioId/reclamar',
+      body: <String, dynamic>{},
+      token: token,
+    );
   }
 
   Future<List<Entrada>> listarEntradas(
