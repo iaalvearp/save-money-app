@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
 import 'agregar_ronda_screen.dart';
+import 'sponsors_screen.dart';
 
 class EventoDetalleScreen extends StatefulWidget {
   final int eventoId;
@@ -223,6 +224,24 @@ class _EventoDetalleScreenState extends State<EventoDetalleScreen> {
               title: Text(sponsor.comercioNombre ?? ''),
               subtitle: Text(sponsor.estado),
             ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SponsorsScreen(
+                    eventoId: widget.eventoId,
+                    servicio: _servicio,
+                    auth: _auth,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.person_add),
+            label: const Text('Invitar sponsor'),
+          ),
+        ),
       ],
     );
   }
