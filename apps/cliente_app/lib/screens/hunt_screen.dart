@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import 'comprobante_entrada_screen.dart';
 
 class HuntScreen extends StatefulWidget {
   final HuntService? servicio;
@@ -104,7 +105,11 @@ class _HuntScreenState extends State<HuntScreen> {
         itemCount: _eventos.length,
         itemBuilder: (context, index) {
           final evento = _eventos[index];
-          return _EventoCard(evento: evento, auth: _auth);
+          return _EventoCard(
+            evento: evento,
+            servicio: _huntService,
+            auth: _auth,
+          );
         },
       ),
     );
@@ -113,8 +118,10 @@ class _HuntScreenState extends State<HuntScreen> {
 
 class _EventoCard extends StatelessWidget {
   final Evento evento;
+  final HuntService servicio;
   final AuthService auth;
-  const _EventoCard({required this.evento, required this.auth});
+  const _EventoCard(
+      {required this.evento, required this.servicio, required this.auth});
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +134,7 @@ class _EventoCard extends StatelessWidget {
             MaterialPageRoute(
               builder: (_) => _EventoDetalleScreen(
                 eventoId: evento.id,
+                servicio: servicio,
                 auth: auth,
               ),
             ),
@@ -240,8 +248,10 @@ class _EventoCard extends StatelessWidget {
 
 class _EventoDetalleScreen extends StatefulWidget {
   final int eventoId;
+  final HuntService? servicio;
   final AuthService? auth;
-  const _EventoDetalleScreen({required this.eventoId, this.auth});
+  const _EventoDetalleScreen(
+      {required this.eventoId, this.servicio, this.auth});
 
   @override
   State<_EventoDetalleScreen> createState() => _EventoDetalleScreenState();
@@ -262,7 +272,7 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
   @override
   void initState() {
     super.initState();
-    _huntService = HuntService();
+    _huntService = widget.servicio ?? HuntService();
     _auth = widget.auth ?? AuthService();
     _cargar();
   }
@@ -382,21 +392,41 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
     final entrada = _miEntrada;
     if (entrada != null) {
       return Card(
-        child: ListTile(
-          leading: Icon(
-            entrada.estado == 'aprobada'
-                ? Icons.check_circle
-                : entrada.estado == 'rechazada'
-                    ? Icons.cancel
-                    : Icons.hourglass_top,
-            color: entrada.estado == 'aprobada'
-                ? Colors.green
-                : entrada.estado == 'rechazada'
-                    ? Colors.red
-                    : Colors.orange,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  entrada.estado == 'aprobada'
+                      ? Icons.check_circle
+                      : entrada.estado == 'rechazada'
+                          ? Icons.cancel
+                          : Icons.hourglass_top,
+                  color: entrada.estado == 'aprobada'
+                      ? Colors.green
+                      : entrada.estado == 'rechazada'
+                          ? Colors.red
+                          : Colors.orange,
+                ),
+                title: Text(_estadoEntradaLabel(entrada.estado)),
+                subtitle: Text('Estado: ${entrada.estado}'),
+              ),
+              if (entrada.estado == 'pendiente_pago') ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _subirComprobante(entrada),
+                    icon: const Icon(Icons.upload),
+                    label: const Text('Subir comprobante de pago'),
+                  ),
+                ),
+              ],
+            ],
           ),
-          title: Text(_estadoEntradaLabel(entrada.estado)),
-          subtitle: Text('Estado: ${entrada.estado}'),
         ),
       );
     }
@@ -447,6 +477,40 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         SnackBar(
           content: Text(message),
           backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _subirComprobante(Entrada entrada) async {
+    final subido = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ComprobanteEntradaScreen(
+          entradaId: entrada.id,
+          servicio: _huntService,
+          auth: _auth,
+        ),
+      ),
+    );
+    if (subido == true && mounted) {
+      setState(() {
+        _miEntrada = Entrada(
+          id: entrada.id,
+          eventoId: entrada.eventoId,
+          clienteId: entrada.clienteId,
+          estado: 'pendiente_revision_comprobante',
+          monto: entrada.monto,
+          comprobanteFoto: entrada.comprobanteFoto,
+          clienteNombre: entrada.clienteNombre,
+          clienteEmail: entrada.clienteEmail,
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Comprobante registrado. Revisión: ${_estadoEntradaLabel('pendiente_revision_comprobante')}',
+          ),
+          backgroundColor: Colors.green,
         ),
       );
     }
