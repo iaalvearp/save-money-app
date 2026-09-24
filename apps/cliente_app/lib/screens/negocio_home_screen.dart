@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
+import 'canjear_cupon_screen.dart';
 import 'login_screen.dart';
 import 'mi_comercio_form_screen.dart';
+import 'mis_promociones_flash_screen.dart';
 
 class NegocioHomeScreen extends StatefulWidget {
   final ComerciosService? servicio;
@@ -160,25 +162,67 @@ class _NegocioHomeScreenState extends State<NegocioHomeScreen> {
 
     return RefreshIndicator(
       onRefresh: _cargarMisComercios,
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.only(bottom: 88),
-        itemCount: _comercios.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, index) {
-          final comercio = _comercios[index];
-          return ListTile(
-            leading: CircleAvatar(child: Text(comercio.nombre[0].toUpperCase())),
-            title: Text(comercio.nombre),
-            subtitle: Text(
-              comercio.categoria ?? 'Sin categoría',
+        children: [
+          _buildAccesosAction(),
+          const Divider(height: 1),
+          for (final comercio in _comercios)
+            ListTile(
+              leading:
+                  CircleAvatar(child: Text(comercio.nombre[0].toUpperCase())),
+              title: Text(comercio.nombre),
+              subtitle: Text(
+                comercio.categoria ?? 'Sin categoría',
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.edit),
+                tooltip: 'Editar',
+                onPressed: () => _abrirFormulario(comercio: comercio),
+              ),
             ),
-            trailing: IconButton(
-              icon: const Icon(Icons.edit),
-              tooltip: 'Editar',
-              onPressed: () => _abrirFormulario(comercio: comercio),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccesosAction() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MisPromocionesFlashScreen(
+                      auth: _auth,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.local_offer),
+              label: const Text('Mis promociones Flash'),
             ),
-          );
-        },
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CanjearCuponScreen(
+                      auth: _auth,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Canjear cupón'),
+            ),
+          ),
+        ],
       ),
     );
   }
