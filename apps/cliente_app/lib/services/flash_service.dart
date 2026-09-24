@@ -109,6 +109,9 @@ class Cupon {
   bool get estaActivo => estado == 'activo';
 }
 
+final formatearFecha = (DateTime dt) =>
+      dt.toUtc().toIso8601String().replaceFirst('T', ' ').substring(0, 19);
+
 class FlashService {
   final ApiClient _api;
 
@@ -121,6 +124,7 @@ class FlashService {
     double? lat,
     double? lng,
     String? categoria,
+    String? token,
   }) async {
     final params = <String>[];
     if (lat != null && lng != null) {
@@ -135,11 +139,53 @@ class FlashService {
         ? '/flash/promociones'
         : '/flash/promociones?${params.join('&')}';
 
-    final response = await _api.get(path);
+    final response = await _api.get(path, token: token);
     final promos = response['promociones'] as List<dynamic>? ?? [];
     return promos
         .map((p) => PromocionFlash.fromJson(p as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<PromocionFlash>> promocionesDeComercio(
+    int comercioId, {
+    String? token,
+  }) async {
+    final promos = await listarPromociones(token: token);
+    return promos.where((p) => p.comercioId == comercioId).toList();
+  }
+
+  Future<PromocionFlash> crearPromocion({
+    required int comercioId,
+    required String titulo,
+    required double descuentoPorcentaje,
+    required DateTime iniciaEn,
+    required DateTime terminaEn,
+    String? descripcion,
+    double? latitud,
+    double? longitud,
+    double radioKm = 5,
+    String? categoria,
+    int? maxUsuarios,
+    String? token,
+  }) async {
+    final response = await _api.post(
+      '/flash/promociones',
+      body: {
+        'comercio_id': comercioId,
+        'titulo': titulo,
+        if (descripcion != null) 'descripcion': descripcion,
+        'descuento_porcentaje': descuentoPorcentaje,
+        'inicia_en': formatearFecha(iniciaEn),
+        'termina_en': formatearFecha(terminaEn),
+        if (latitud != null) 'latitud': latitud,
+        if (longitud != null) 'longitud': longitud,
+        'radio_km': radioKm,
+        if (categoria != null) 'categoria': categoria,
+        if (maxUsuarios != null) 'max_usuarios': maxUsuarios,
+      },
+      token: token,
+    );
+    return PromocionFlash.fromJson(response['promocion'] as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> obtenerPromocion(int id) async {

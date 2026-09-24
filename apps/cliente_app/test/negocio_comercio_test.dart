@@ -100,6 +100,7 @@ void main() {
         ),
       );
 
+      await tester.ensureVisible(find.text('Guardar'));
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
@@ -138,6 +139,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Apertura (HH:MM)'),
         '9:00',
       );
+      await tester.ensureVisible(find.text('Guardar'));
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
@@ -181,6 +183,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Cierre (HH:MM)'),
         '18:30',
       );
+      await tester.ensureVisible(find.text('Guardar'));
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
