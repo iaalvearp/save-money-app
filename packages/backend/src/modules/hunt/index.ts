@@ -687,6 +687,52 @@ hunt.get(
   }
 );
 
+hunt.get(
+  "/eventos/:eventoId/premios/:premioId/ganadores",
+  authMiddleware,
+  requireRole("organizador", "admin"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const eventoId = c.req.param("eventoId");
+    const premioId = c.req.param("premioId");
+
+    const evento = await db
+      .prepare("SELECT organizador_id FROM eventos WHERE id = ?")
+      .bind(eventoId)
+      .first<{ organizador_id: number }>();
+
+    if (!evento) {
+      return c.json({ error: "Evento no encontrado" }, 404);
+    }
+    if (user.rol !== "admin" && evento.organizador_id !== user.sub) {
+      return c.json({ error: "No tienes permiso" }, 403);
+    }
+
+    const premio = await db
+      .prepare("SELECT id FROM premios WHERE id = ? AND evento_id = ?")
+      .bind(premioId, eventoId)
+      .first();
+
+    if (!premio) {
+      return c.json({ error: "Premio no encontrado" }, 404);
+    }
+
+    const result = await db
+      .prepare(
+        `SELECT pe.*, u.nombre_completo AS usuario_nombre, u.email AS usuario_email
+         FROM premios_entregados pe
+         JOIN usuarios u ON pe.usuario_id = u.id
+         WHERE pe.premio_id = ?
+         ORDER BY pe.entregado_en ASC`
+      )
+      .bind(premioId)
+      .all();
+
+    return c.json({ ganadores: result.results });
+  }
+);
+
 hunt.post(
   "/eventos/:eventoId/cupones-consolacion",
   authMiddleware,
