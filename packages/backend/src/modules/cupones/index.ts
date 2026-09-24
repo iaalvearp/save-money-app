@@ -170,23 +170,23 @@ cupones.get(
 );
 
 cupones.post(
-  "/:id/canjear",
+  "/:codigo/canjear",
   authMiddleware,
   requireRole("negocio", "admin"),
   async (c) => {
     const db = c.env.DB;
     const user = c.get("user");
-    const cuponId = Number(c.req.param("id"));
+    const codigoQr = c.req.param("codigo");
 
     const cupon = await db
       .prepare(
-        `SELECT cu.comercio_id, c.usuario_id AS comercio_owner
+        `SELECT cu.id, cu.comercio_id, c.usuario_id AS comercio_owner
          FROM cupones cu
          JOIN comercios c ON cu.comercio_id = c.id
-         WHERE cu.id = ?`
+         WHERE cu.codigo_qr = ?`
       )
-      .bind(cuponId)
-      .first<{ comercio_id: number; comercio_owner: number }>();
+      .bind(codigoQr)
+      .first<{ id: number; comercio_id: number; comercio_owner: number }>();
 
     if (!cupon) {
       return c.json({ error: "Cupon no encontrado" }, 404);
@@ -199,7 +199,7 @@ cupones.post(
       );
     }
 
-    const result = await canjearCupon(db, cuponId, cupon.comercio_id);
+    const result = await canjearCupon(db, cupon.id, cupon.comercio_id);
 
     if (!result.ok) {
       const status = result.error?.includes("no encontrado") ? 404 : 422;

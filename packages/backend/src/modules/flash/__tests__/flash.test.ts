@@ -499,12 +499,12 @@ describe("GET /flash/mis-cupones", () => {
   });
 });
 
-describe("POST /flash/cupones/:id/canjear", () => {
+describe("POST /flash/cupones/:codigo/canjear", () => {
   it("negocio canjea cupón activo de su comercio", async () => {
     const app = buildApp();
     const token = await makeToken(1, "negocio");
 
-    const insertRes = await db
+    await db
       .prepare(
         `INSERT INTO cupones
          (comercio_id, cliente_id, codigo_qr, estado, tipo, descuento, expira_en)
@@ -512,10 +512,9 @@ describe("POST /flash/cupones/:id/canjear", () => {
       )
       .bind(1, 2, "FLASH-CANJE-001", 15, futureDate(30))
       .run();
-    const cuponId = insertRes.meta.last_row_id;
 
     const res = await app.request(
-      `/flash/cupones/${cuponId}/canjear`,
+      "/flash/cupones/FLASH-CANJE-001/canjear",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -526,8 +525,8 @@ describe("POST /flash/cupones/:id/canjear", () => {
     expect(res.status).toBe(200);
 
     const row = await db
-      .prepare("SELECT estado, canjeado_en FROM cupones WHERE id = ?")
-      .bind(cuponId)
+      .prepare("SELECT estado, canjeado_en FROM cupones WHERE codigo_qr = ?")
+      .bind("FLASH-CANJE-001")
       .first<{ estado: string; canjeado_en: string | null }>();
     expect(row?.estado).toBe("utilizado");
     expect(row?.canjeado_en).not.toBeNull();
@@ -537,7 +536,7 @@ describe("POST /flash/cupones/:id/canjear", () => {
     const app = buildApp();
     const token = await makeToken(1, "negocio");
 
-    const insertRes = await db
+    await db
       .prepare(
         `INSERT INTO cupones
          (comercio_id, cliente_id, codigo_qr, estado, tipo, descuento)
@@ -545,10 +544,9 @@ describe("POST /flash/cupones/:id/canjear", () => {
       )
       .bind(1, 2, "FLASH-YA-CANJEADO")
       .run();
-    const cuponId = insertRes.meta.last_row_id;
 
     const res = await app.request(
-      `/flash/cupones/${cuponId}/canjear`,
+      "/flash/cupones/FLASH-YA-CANJEADO/canjear",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -563,7 +561,7 @@ describe("POST /flash/cupones/:id/canjear", () => {
     const app = buildApp();
     const token = await makeToken(1, "negocio");
 
-    const insertRes = await db
+    await db
       .prepare(
         `INSERT INTO cupones
          (comercio_id, cliente_id, codigo_qr, estado, tipo, descuento, expira_en)
@@ -571,10 +569,9 @@ describe("POST /flash/cupones/:id/canjear", () => {
       )
       .bind(1, 2, "FLASH-EXPIRED-CANJE", pastDate(1))
       .run();
-    const cuponId = insertRes.meta.last_row_id;
 
     const res = await app.request(
-      `/flash/cupones/${cuponId}/canjear`,
+      "/flash/cupones/FLASH-EXPIRED-CANJE/canjear",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -584,8 +581,8 @@ describe("POST /flash/cupones/:id/canjear", () => {
 
     expect(res.status).toBe(422);
     const row = await db
-      .prepare("SELECT estado FROM cupones WHERE id = ?")
-      .bind(cuponId)
+      .prepare("SELECT estado FROM cupones WHERE codigo_qr = ?")
+      .bind("FLASH-EXPIRED-CANJE")
       .first<{ estado: string }>();
     expect(row?.estado).toBe("expirado");
   });
