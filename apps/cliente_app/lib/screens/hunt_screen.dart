@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
 
 class HuntScreen extends StatefulWidget {
-  const HuntScreen({super.key});
+  final HuntService? servicio;
+  final AuthService? auth;
+
+  const HuntScreen({super.key, this.servicio, this.auth});
 
   @override
   State<HuntScreen> createState() => _HuntScreenState();
 }
 
 class _HuntScreenState extends State<HuntScreen> {
-  final _huntService = HuntService();
+  late final HuntService _huntService;
+  late final AuthService _auth;
   List<Evento> _eventos = [];
   bool _loading = true;
   String? _error;
@@ -18,6 +23,8 @@ class _HuntScreenState extends State<HuntScreen> {
   @override
   void initState() {
     super.initState();
+    _huntService = widget.servicio ?? HuntService();
+    _auth = widget.auth ?? AuthService();
     _cargar();
   }
 
@@ -28,7 +35,8 @@ class _HuntScreenState extends State<HuntScreen> {
     });
 
     try {
-      final eventos = await _huntService.listarEventos();
+      final token = await _auth.getAccessToken();
+      final eventos = await _huntService.listarEventos(token: token);
       if (!mounted) return;
       setState(() {
         _eventos = eventos;
@@ -96,7 +104,7 @@ class _HuntScreenState extends State<HuntScreen> {
         itemCount: _eventos.length,
         itemBuilder: (context, index) {
           final evento = _eventos[index];
-          return _EventoCard(evento: evento);
+          return _EventoCard(evento: evento, auth: _auth);
         },
       ),
     );
@@ -105,7 +113,8 @@ class _HuntScreenState extends State<HuntScreen> {
 
 class _EventoCard extends StatelessWidget {
   final Evento evento;
-  const _EventoCard({required this.evento});
+  final AuthService auth;
+  const _EventoCard({required this.evento, required this.auth});
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +125,10 @@ class _EventoCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => _EventoDetalleScreen(eventoId: evento.id),
+              builder: (_) => _EventoDetalleScreen(
+                eventoId: evento.id,
+                auth: auth,
+              ),
             ),
           );
         },
@@ -228,24 +240,30 @@ class _EventoCard extends StatelessWidget {
 
 class _EventoDetalleScreen extends StatefulWidget {
   final int eventoId;
-  const _EventoDetalleScreen({required this.eventoId});
+  final AuthService? auth;
+  const _EventoDetalleScreen({required this.eventoId, this.auth});
 
   @override
   State<_EventoDetalleScreen> createState() => _EventoDetalleScreenState();
 }
 
 class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
-  final _huntService = HuntService();
+  late final HuntService _huntService;
+  late final AuthService _auth;
   Evento? _evento;
   List<Ronda> _rondas = [];
   List<Premio> _premios = [];
   List<dynamic> _sponsors = [];
+  Entrada? _miEntrada;
+  bool _comprando = false;
   bool _loading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _huntService = HuntService();
+    _auth = widget.auth ?? AuthService();
     _cargar();
   }
 
@@ -256,7 +274,9 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
     });
 
     try {
-      final response = await _huntService.obtenerEvento(widget.eventoId);
+      final token = await _auth.getAccessToken();
+      final response = await _huntService.obtenerEvento(widget.eventoId,
+          token: token);
       if (!mounted) return;
 
       setState(() {
@@ -347,41 +367,104 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
             const SizedBox(height: 16),
           ],
           if (evento.requiereEntrada) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    await _huntService.comprarEntrada(evento.id);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Entrada registrada. Sube tu comprobante de pago.')),
-                    );
-                  } catch (e) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(e.toString().contains('409')
-                            ? 'Ya tienes una entrada para este evento'
-                            : 'Error al comprar entrada'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.confirmation_number),
-                label: Text('Comprar entrada - \$${evento.precioEntrada?.toStringAsFixed(2) ?? ''}'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ),
+            const Text('Mi entrada',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            _buildMiEntrada(evento),
+            const SizedBox(height: 16),
           ],
         ],
       ),
     );
+  }
+
+  Widget _buildMiEntrada(Evento evento) {
+    final entrada = _miEntrada;
+    if (entrada != null) {
+      return Card(
+        child: ListTile(
+          leading: Icon(
+            entrada.estado == 'aprobada'
+                ? Icons.check_circle
+                : entrada.estado == 'rechazada'
+                    ? Icons.cancel
+                    : Icons.hourglass_top,
+            color: entrada.estado == 'aprobada'
+                ? Colors.green
+                : entrada.estado == 'rechazada'
+                    ? Colors.red
+                    : Colors.orange,
+          ),
+          title: Text(_estadoEntradaLabel(entrada.estado)),
+          subtitle: Text('Estado: ${entrada.estado}'),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _comprando ? null : () => _comprarEntrada(evento),
+        icon: _comprando
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.confirmation_number),
+        label: Text(
+            'Comprar entrada - \$${evento.precioEntrada?.toStringAsFixed(2) ?? ''}'),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _comprarEntrada(Evento evento) async {
+    setState(() => _comprando = true);
+    try {
+      final token = await _auth.getAccessToken();
+      final entrada = await _huntService.comprarEntrada(evento.id, token: token);
+      if (!mounted) return;
+      setState(() {
+        _miEntrada = entrada;
+        _comprando = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Entrada registrada. Sube tu comprobante de pago.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _comprando = false);
+      final message = e.toString().contains('ApiException')
+          ? (e as dynamic).message
+          : 'Error al comprar entrada';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _estadoEntradaLabel(String estado) {
+    switch (estado) {
+      case 'pendiente_pago':
+        return 'Pendiente de pago';
+      case 'pendiente_revision_comprobante':
+        return 'Comprobante en revisión';
+      case 'aprobada':
+        return 'Entrada aprobada';
+      case 'rechazada':
+        return 'Entrada rechazada';
+      default:
+        return estado;
+    }
   }
 
   Widget _buildHeader(Evento evento) {
