@@ -137,6 +137,32 @@ beforeAll(async () => {
     UNIQUE (evento_id, comercio_id)
   )`).run();
 
+  await db.prepare(`CREATE TABLE IF NOT EXISTS facturas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL REFERENCES usuarios(id),
+    comercio_id INTEGER REFERENCES comercios(id),
+    evento_id INTEGER REFERENCES eventos(id),
+    nivel_verificacion INTEGER NOT NULL CHECK (nivel_verificacion IN (1,2,3)),
+    clave_acceso_49 TEXT UNIQUE,
+    numero_factura TEXT,
+    ruc_emisor TEXT,
+    nombre_comprador_factura TEXT,
+    fecha_factura TEXT,
+    monto_total REAL,
+    descuento_aplicado REAL,
+    cupon_id INTEGER,
+    foto TEXT,
+    estado TEXT NOT NULL DEFAULT 'aprobada' CHECK (estado IN (
+      'aprobada',
+      'pendiente_revision_nombre',
+      'pendiente_verificacion_sri',
+      'rechazada'
+    )),
+    motivo_rechazo TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sri_estado_bruto TEXT
+  )`).run();
+
   await db.prepare(`CREATE TABLE IF NOT EXISTS puntos_evento (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     evento_id INTEGER NOT NULL REFERENCES eventos(id),
@@ -1168,5 +1194,140 @@ describe("GET /hunt/eventos/:eventoId/premios/:premioId/ganadores", () => {
     );
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /hunt/eventos/:eventoId/participantes-sin-premio", () => {
+  async function crearCliente(email: string, nombre: string): Promise<number> {
+    await db
+      .prepare(`INSERT INTO usuarios (rol, email, password_hash, nombre_completo)
+                VALUES (?, ?, ?, ?)`)
+      .bind("cliente", email, "hash", nombre)
+      .run();
+    const row = await db
+      .prepare("SELECT id FROM usuarios WHERE email = ?")
+      .bind(email)
+      .first<{ id: number }>();
+    if (!row) throw new Error("cliente no creado");
+    return row.id;
+  }
+
+  async function crearEvento(): Promise<number> {
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Participantes", futureDate(1), futureDate(3))
+      .run();
+    return insertRes.meta.last_row_id;
+  }
+
+  async function agregarFacturaAprobada(eventoId: number, clienteId: number): Promise<void> {
+    await db
+      .prepare(`INSERT INTO facturas (cliente_id, evento_id, nivel_verificacion, estado)
+                VALUES (?, ?, 2, 'aprobada')`)
+      .bind(clienteId, eventoId)
+      .run();
+  }
+
+  it("lista clientes con compra aprobada sin premio entregado", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const clienteSinPremio = await crearCliente("cli-sin@test.com", "Cliente Sin Premio");
+    const clienteConPremio = await crearCliente("cli-con@test.com", "Cliente Con Premio");
+    const eventoId = await crearEvento();
+
+    await agregarFacturaAprobada(eventoId, clienteSinPremio);
+    await agregarFacturaAprobada(eventoId, clienteConPremio);
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Entregado", 5, "principal")
+      .run();
+    const premioId = premioRes.meta.last_row_id;
+
+    await db
+      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
+                VALUES (?, ?, 'entregado')`)
+      .bind(premioId, clienteConPremio)
+      .run();
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/participantes-sin-premio`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { participantes: Array<{ id: number; nombre_completo: string; email: string }> };
+    expect(body.participantes.length).toBe(1);
+    expect(body.participantes[0].id).toBe(clienteSinPremio);
+    expect(body.participantes[0].nombre_completo).toBe("Cliente Sin Premio");
+    expect(body.participantes[0].email).toBe("cli-sin@test.com");
+  });
+
+  it("devuelve lista vacía cuando todos ya tienen premio o no hay compras", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const cliente = await crearCliente("cli-vacio@test.com", "Cliente Vacío");
+    const eventoId = await crearEvento();
+    await agregarFacturaAprobada(eventoId, cliente);
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Premio Único", 5, "principal")
+      .run();
+    await db
+      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
+                VALUES (?, ?, 'entregado')`)
+      .bind(premioRes.meta.last_row_id, cliente)
+      .run();
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/participantes-sin-premio`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { participantes: unknown[] };
+    expect(body.participantes).toEqual([]);
+
+    const eventoSinCompras = await crearEvento();
+    const res2 = await app.request(
+      `/hunt/eventos/${eventoSinCompras}/participantes-sin-premio`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET }
+    );
+    const body2 = (await res2.json()) as { participantes: unknown[] };
+    expect(body2.participantes).toEqual([]);
+  });
+
+  it("niega el acceso a otro organizador", async () => {
+    const app = buildApp();
+
+    await db
+      .prepare(`INSERT INTO usuarios (rol, email, password_hash, nombre_completo)
+                VALUES (?, ?, ?, ?)`)
+      .bind("organizador", "org3@test.com", "hash", "Org 3")
+      .run();
+    const org3Id = (await db.prepare("SELECT id FROM usuarios WHERE email = ?")
+      .bind("org3@test.com")
+      .first<{ id: number }>())?.id;
+    if (!org3Id) throw new Error("org3 no creado");
+
+    const otherToken = await makeToken(org3Id, "organizador");
+    const eventoId = await crearEvento();
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/participantes-sin-premio`,
+      { headers: { Authorization: `Bearer ${otherToken}` } },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(403);
   });
 });

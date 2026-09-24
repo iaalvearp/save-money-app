@@ -733,6 +733,47 @@ hunt.get(
   }
 );
 
+hunt.get(
+  "/eventos/:eventoId/participantes-sin-premio",
+  authMiddleware,
+  requireRole("organizador", "admin"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const eventoId = c.req.param("eventoId");
+
+    const evento = await db
+      .prepare("SELECT organizador_id FROM eventos WHERE id = ?")
+      .bind(eventoId)
+      .first<{ organizador_id: number }>();
+
+    if (!evento) {
+      return c.json({ error: "Evento no encontrado" }, 404);
+    }
+    if (user.rol !== "admin" && evento.organizador_id !== user.sub) {
+      return c.json({ error: "No tienes permiso" }, 403);
+    }
+
+    const result = await db
+      .prepare(
+        `SELECT DISTINCT u.id, u.nombre_completo, u.email
+         FROM facturas f
+         JOIN usuarios u ON f.cliente_id = u.id
+         WHERE f.evento_id = ? AND f.estado = 'aprobada'
+           AND NOT EXISTS (
+             SELECT 1 FROM premios_entregados pe
+             JOIN premios p ON pe.premio_id = p.id
+             WHERE p.evento_id = ? AND pe.usuario_id = u.id AND pe.estado = 'entregado'
+           )
+         ORDER BY u.nombre_completo ASC`
+      )
+      .bind(eventoId, eventoId)
+      .all();
+
+    return c.json({ participantes: result.results });
+  }
+);
+
 hunt.post(
   "/eventos/:eventoId/cupones-consolacion",
   authMiddleware,
