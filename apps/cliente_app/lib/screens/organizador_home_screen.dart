@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
 import 'crear_evento_screen.dart';
+import 'evento_detalle_screen.dart';
 import 'login_screen.dart';
 
 class OrganizadorHomeScreen extends StatefulWidget {
@@ -172,6 +173,18 @@ class _OrganizadorHomeScreenState extends State<OrganizadorHomeScreen> {
               '${evento.fechaInicio.split(' ').first} - '
               '${evento.fechaFin.split(' ').first}',
             ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventoDetalleScreen(
+                    eventoId: evento.id,
+                    servicio: _servicio,
+                    auth: _auth,
+                  ),
+                ),
+              );
+            },
           );
         },
       ),
