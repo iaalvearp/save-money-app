@@ -9,6 +9,7 @@ class AuthService {
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
   static const _roleKey = 'rol';
+  static const _userIdKey = 'user_id';
 
   AuthService({ApiClient? api, FlutterSecureStorage? storage})
       : _api = api ??
@@ -69,11 +70,13 @@ class AuthService {
 
     final user = response['user'] as Map<String, dynamic>?;
     final rol = user?['rol'] as String?;
+    final userId = user?['id'] as int?;
 
     await _saveSession(
       accessToken: accessToken,
       refreshToken: refreshToken,
       rol: rol,
+      userId: userId,
     );
   }
 
@@ -94,21 +97,31 @@ class AuthService {
     return _storage.read(key: _roleKey);
   }
 
+  Future<int?> userId() async {
+    final raw = await _storage.read(key: _userIdKey);
+    return raw == null ? null : int.tryParse(raw);
+  }
+
   Future<void> logout() async {
     await _storage.delete(key: _accessTokenKey);
     await _storage.delete(key: _refreshTokenKey);
     await _storage.delete(key: _roleKey);
+    await _storage.delete(key: _userIdKey);
   }
 
   Future<void> _saveSession({
     required String accessToken,
     required String refreshToken,
     String? rol,
+    int? userId,
   }) async {
     await _storage.write(key: _accessTokenKey, value: accessToken);
     await _storage.write(key: _refreshTokenKey, value: refreshToken);
     if (rol != null) {
       await _storage.write(key: _roleKey, value: rol);
+    }
+    if (userId != null) {
+      await _storage.write(key: _userIdKey, value: '$userId');
     }
   }
 }

@@ -70,6 +70,35 @@ class Ronda {
   }
 }
 
+class Sponsor {
+  final int id;
+  final int eventoId;
+  final int comercioId;
+  final String estado;
+  final String? comercioNombre;
+  final String? categoria;
+
+  Sponsor({
+    required this.id,
+    required this.eventoId,
+    required this.comercioId,
+    required this.estado,
+    this.comercioNombre,
+    this.categoria,
+  });
+
+  factory Sponsor.fromJson(Map<String, dynamic> json) {
+    return Sponsor(
+      id: json['id'] as int,
+      eventoId: json['evento_id'] as int,
+      comercioId: json['comercio_id'] as int,
+      estado: json['estado'] as String,
+      comercioNombre: json['comercio_nombre'] as String?,
+      categoria: json['categoria'] as String?,
+    );
+  }
+}
+
 class Premio {
   final int id;
   final int eventoId;
@@ -115,6 +144,7 @@ class Entrada {
   final double? monto;
   final String? comprobanteFoto;
   final String? clienteNombre;
+  final String? clienteEmail;
 
   Entrada({
     required this.id,
@@ -124,6 +154,7 @@ class Entrada {
     this.monto,
     this.comprobanteFoto,
     this.clienteNombre,
+    this.clienteEmail,
   });
 
   factory Entrada.fromJson(Map<String, dynamic> json) {
@@ -135,9 +166,13 @@ class Entrada {
       monto: (json['monto'] as num?)?.toDouble(),
       comprobanteFoto: json['comprobante_foto'] as String?,
       clienteNombre: json['cliente_nombre'] as String?,
+      clienteEmail: json['cliente_email'] as String?,
     );
   }
 }
+
+final formatearFecha = (DateTime dt) =>
+    dt.toUtc().toIso8601String().replaceFirst('T', ' ').substring(0, 19);
 
 class HuntService {
   final ApiClient _api;
@@ -147,17 +182,19 @@ class HuntService {
             ApiClient(
                 baseUrl: 'https://save-money-backend.iaalvearp.workers.dev');
 
-  Future<List<Evento>> listarEventos() async {
-    final response = await _api.get('/hunt/eventos');
+  Future<List<Evento>> listarEventos({String? token}) async {
+    final response = await _api.get('/hunt/eventos', token: token);
     final eventos = response['eventos'] as List<dynamic>? ?? [];
     return eventos
         .map((e) => Evento.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<Map<String, dynamic>> obtenerEvento(int id) async {
-    final response = await _api.get('/hunt/eventos/$id');
-    return response;
+  Future<Map<String, dynamic>> obtenerEvento(
+    int id, {
+    String? token,
+  }) async {
+    return _api.get('/hunt/eventos/$id', token: token);
   }
 
   Future<Evento> crearEvento({
@@ -166,6 +203,7 @@ class HuntService {
     required String fechaFin,
     bool requiereEntrada = false,
     double? precioEntrada,
+    String? token,
   }) async {
     final response = await _api.post('/hunt/eventos', body: {
       'nombre': nombre,
@@ -173,25 +211,125 @@ class HuntService {
       'fecha_fin': fechaFin,
       'requiere_entrada': requiereEntrada,
       if (precioEntrada != null) 'precio_entrada': precioEntrada,
-    });
+    }, token: token);
     return Evento.fromJson(response['evento'] as Map<String, dynamic>);
+  }
+
+  Future<Ronda> crearRonda({
+    required int eventoId,
+    required String nombre,
+    required String horaInicio,
+    required String horaFin,
+    String? token,
+  }) async {
+    final response = await _api.post(
+      '/hunt/eventos/$eventoId/rondas',
+      body: {
+        'nombre': nombre,
+        'hora_inicio': horaInicio,
+        'hora_fin': horaFin,
+      },
+      token: token,
+    );
+    return Ronda.fromJson(response['ronda'] as Map<String, dynamic>);
+  }
+
+  Future<void> invitarSponsor({
+    required int eventoId,
+    required int comercioId,
+    String? token,
+  }) async {
+    await _api.post(
+      '/hunt/eventos/$eventoId/sponsors',
+      body: {'comercio_id': comercioId},
+      token: token,
+    );
+  }
+
+  Future<Premio> crearPremio({
+    required int eventoId,
+    required String nombre,
+    required int stock,
+    required String tipo,
+    int? rondaId,
+    int? criterioFrecuencia,
+    String? token,
+  }) async {
+    final response = await _api.post(
+      '/hunt/eventos/$eventoId/premios',
+      body: {
+        'nombre': nombre,
+        'stock': stock,
+        'tipo': tipo,
+        if (rondaId != null) 'ronda_id': rondaId,
+        if (criterioFrecuencia != null)
+          'criterio_frecuencia': criterioFrecuencia,
+      },
+      token: token,
+    );
+    return Premio.fromJson(response['premio'] as Map<String, dynamic>);
   }
 
   Future<void> comprarEntrada(int eventoId) async {
     await _api.post('/hunt/eventos/$eventoId/entradas/comprar', body: {});
   }
 
-  Future<List<Entrada>> listarEntradas(int eventoId) async {
-    final response = await _api.get('/hunt/eventos/$eventoId/entradas');
+  Future<List<Entrada>> listarEntradas(
+    int eventoId, {
+    String? token,
+  }) async {
+    final response = await _api.get(
+      '/hunt/eventos/$eventoId/entradas',
+      token: token,
+    );
     final entradas = response['entradas'] as List<dynamic>? ?? [];
     return entradas
         .map((e) => Entrada.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<void> revisarEntrada(int entradaId, {required bool aprueba}) async {
+  Future<void> revisarEntrada(
+    int entradaId, {
+    required bool aprueba,
+    String? token,
+  }) async {
     await _api.post('/hunt/entradas/$entradaId/revisar', body: {
       'aprueba': aprueba,
-    });
+    }, token: token);
+  }
+
+  Future<void> entregarPremio({
+    required int eventoId,
+    required int premioId,
+    required int usuarioId,
+    int? rondaId,
+    String? token,
+  }) async {
+    await _api.post(
+      '/hunt/eventos/$eventoId/premios/$premioId/entregar',
+      body: {
+        'usuario_id': usuarioId,
+        if (rondaId != null) 'ronda_id': rondaId,
+      },
+      token: token,
+    );
+  }
+
+  Future<void> emitirCuponesConsolacion({
+    required int eventoId,
+    required int comercioId,
+    required List<int> usuarioIds,
+    required int descuento,
+    String? token,
+  }) async {
+    await _api.post(
+      '/hunt/eventos/$eventoId/cupones-consolacion',
+      body: {
+        'comercio_id': comercioId,
+        'usuario_ids': usuarioIds,
+        'descuento': descuento,
+      },
+      token: token,
+    );
   }
 }
