@@ -174,8 +174,8 @@ class _OrganizadorHomeScreenState extends State<OrganizadorHomeScreen> {
               '${evento.fechaFin.split(' ').first}',
             ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.of(context).push(
+            onTap: () async {
+              await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => EventoDetalleScreen(
                     eventoId: evento.id,
@@ -184,6 +184,7 @@ class _OrganizadorHomeScreenState extends State<OrganizadorHomeScreen> {
                   ),
                 ),
               );
+              _cargarEventosPropios();
             },
           );
         },
