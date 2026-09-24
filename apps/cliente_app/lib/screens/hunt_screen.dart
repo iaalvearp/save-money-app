@@ -361,7 +361,7 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
                 ),
                 title: Text(p.nombre),
                 subtitle: Text('Stock: ${p.stockDisponible}/${p.stock}'),
-                trailing: Text(p.tipo, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                trailing: _buildReclamar(p, evento),
               ),
             const SizedBox(height: 16),
           ],
@@ -386,6 +386,51 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildReclamar(Premio premio, Evento evento) {
+    if (!evento.estaActivo || premio.stockDisponible <= 0) {
+      return Text(premio.tipo,
+          style: TextStyle(fontSize: 12, color: Colors.grey[600]));
+    }
+    return FilledButton.tonal(
+      onPressed: () => _reclamarPremio(evento, premio),
+      child: const Text('Reclamar'),
+    );
+  }
+
+  Future<void> _reclamarPremio(Evento evento, Premio premio) async {
+    try {
+      final token = await _auth.getAccessToken();
+      final resultado = await _huntService.reclamarPremio(
+        evento.id,
+        premio.id,
+        token: token,
+      );
+      if (!mounted) return;
+      final mensaje = resultado['mensaje'] as String?;
+      final puntos = resultado['puntos_ganados'] as int?;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            puntos != null ? '$mensaje · +$puntos puntos' : mensaje ?? 'Premio reclamado',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      final message = e.toString().contains('ApiException')
+          ? (e as dynamic).message
+          : 'Error al reclamar el premio';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildMiEntrada(Evento evento) {
