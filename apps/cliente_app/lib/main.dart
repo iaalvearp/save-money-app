@@ -1,10 +1,16 @@
+import 'dart:async';
+
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
+import 'services/notificaciones_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -43,6 +49,7 @@ class _SessionGateState extends State<SessionGate> {
     final auth = AuthService();
     final hasSession = await auth.hasSession();
     if (!hasSession) return const LoginScreen();
+    unawaited(NotificacionesService(auth: auth).registrarToken());
     // TODO: implementar refresh automático del access token vencido
     final rol = await auth.rolActual();
     return pantallaInicialPorRol(rol);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/notificaciones_service.dart';
 import 'registro_screen.dart';
 import 'role_navigation.dart';
 
@@ -42,6 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+
+      await NotificacionesService(auth: _authService).registrarToken();
 
       if (!mounted) return;
       final rol = await _authService.rolActual();
