@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
+import '../services/notificaciones_service.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
 import 'historial_facturas_screen.dart';
@@ -186,6 +187,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (_) => const HistorialFacturasScreen(),
                 ),
               );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_active),
+            tooltip: 'Probar notificación',
+            onPressed: () async {
+              try {
+                await NotificacionesService().probarNotificacion();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Notificación de prueba enviada'),
+                  ),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('No se pudo enviar la notificación'),
+                  ),
+                );
+              }
             },
           ),
           IconButton(
