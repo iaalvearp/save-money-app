@@ -389,4 +389,33 @@ auth.patch("/consentimiento", async (c) => {
   });
 });
 
+auth.put("/fcm-token", async (c) => {
+  const db = c.env.DB;
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "Token requerido" }, 401);
+  }
+
+  const token = authHeader.slice(7);
+  const secret = c.env.JWT_SECRET;
+  const decoded = await verify(token, secret);
+  if (!decoded) {
+    return c.json({ error: "Token inválido o expirado" }, 401);
+  }
+
+  const payload = decoded.payload as unknown as CustomJwtPayload;
+  const userId = Number(payload.sub);
+
+  const body = await c.req.json<{ fcm_token?: string }>();
+
+  const fcmToken = body.fcm_token?.trim() || null;
+
+  await db
+    .prepare("UPDATE usuarios SET fcm_token = ? WHERE id = ?")
+    .bind(fcmToken, userId)
+    .run();
+
+  return c.json({ ok: true });
+});
+
 export { auth };
