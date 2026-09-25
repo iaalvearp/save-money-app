@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "216413568849",
+    "project_id": "save-money-app-758c3",
+    "storage_bucket": "save-money-app-758c3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:216413568849:android:f2052c181390bb36281d70",
+        "android_client_info": {
+          "package_name": "com.savemoney.cliente_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyACXDx3IGpsFCUvm7bmFvSclRB0POZX9e8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
