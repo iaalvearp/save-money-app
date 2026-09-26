@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -191,6 +192,84 @@ void main() {
       expect(cuerpoEnviado, contains('"nombre":"Mi Tienda"'));
       expect(cuerpoEnviado, contains('"hora_apertura":"09:00"'));
       expect(cuerpoEnviado, contains('"hora_cierre":"18:30"'));
+    });
+
+    testWidgets('rellena latitud y longitud al usar mi ubicación actual',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MiComercioFormScreen(
+            servicio: _servicioCon(
+              MockClient((request) async {
+                return http.Response(
+                  '{"comercio": {"id": 7, "nombre": "Mi Tienda"}}',
+                  201,
+                  headers: {'content-type': 'application/json'},
+                );
+              }),
+            ),
+            auth: _FakeAuth(),
+            obtenerUbicacion: () async => Position(
+              latitude: -0.180653,
+              longitude: -78.467835,
+              timestamp: DateTime.now(),
+              accuracy: 5.0,
+              altitude: 0.0,
+              altitudeAccuracy: 5.0,
+              heading: 0.0,
+              headingAccuracy: 5.0,
+              speed: 0.0,
+              speedAccuracy: 5.0,
+            ),
+          ),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Usar mi ubicación actual'));
+      await tester.tap(find.text('Usar mi ubicación actual'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(TextFormField, 'Latitud'),
+        findsOneWidget,
+      );
+      final latitud =
+          tester.widget<TextFormField>(find.widgetWithText(TextFormField, 'Latitud'));
+      final longitud = tester.widget<TextFormField>(
+          find.widgetWithText(TextFormField, 'Longitud'));
+      expect(latitud.controller?.text, '-0.180653');
+      expect(longitud.controller?.text, '-78.467835');
+    });
+
+    testWidgets('muestra el error real si falla obtener la ubicación',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MiComercioFormScreen(
+            servicio: _servicioCon(
+              MockClient((request) async {
+                return http.Response(
+                  '{"comercio": {"id": 7, "nombre": "Mi Tienda"}}',
+                  201,
+                  headers: {'content-type': 'application/json'},
+                );
+              }),
+            ),
+            auth: _FakeAuth(),
+            obtenerUbicacion: () async =>
+                throw Exception('Permiso de ubicación denegado'),
+          ),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Usar mi ubicación actual'));
+      await tester.tap(find.text('Usar mi ubicación actual'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Permiso de ubicación denegado'),
+        findsOneWidget,
+      );
     });
   });
 }

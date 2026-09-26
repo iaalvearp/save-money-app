@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
@@ -9,12 +10,14 @@ class MiComercioFormScreen extends StatefulWidget {
   final Comercio? comercio;
   final ComerciosService? servicio;
   final AuthService? auth;
+  final Future<Position> Function()? obtenerUbicacion;
 
   const MiComercioFormScreen({
     super.key,
     this.comercio,
     this.servicio,
     this.auth,
+    this.obtenerUbicacion,
   });
 
   bool get esEdicion => comercio != null;
@@ -49,7 +52,11 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
       text: widget.comercio?.fotoUrl ?? '');
 
   bool _guardando = false;
+  bool _obteniendoUbicacion = false;
   String? _error;
+
+  late final Future<Position> Function() _obtenerUbicacion =
+      widget.obtenerUbicacion ?? _obtenerUbicacionPorGeolocator;
 
   @override
   void initState() {
@@ -95,6 +102,51 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
   double? _parsearNumero(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     return double.tryParse(value.trim());
+  }
+
+  Future<Position> _obtenerUbicacionPorGeolocator() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Servicios de ubicación desactivados');
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied) {
+      throw Exception('Permiso de ubicación denegado');
+    }
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('Permiso de ubicación denegado permanentemente');
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 10),
+      ),
+    );
+  }
+
+  Future<void> _usarUbicacionActual() async {
+    setState(() {
+      _obteniendoUbicacion = true;
+      _error = null;
+    });
+
+    try {
+      final position = await _obtenerUbicacion();
+
+      if (!mounted) return;
+      _latitudController.text = position.latitude.toStringAsFixed(6);
+      _longitudController.text = position.longitude.toStringAsFixed(6);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _obteniendoUbicacion = false);
+    }
   }
 
   Future<void> _guardar() async {
@@ -247,6 +299,25 @@ class _MiComercioFormScreenState extends State<MiComercioFormScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _obteniendoUbicacion ? null : _usarUbicacionActual,
+                  icon: _obteniendoUbicacion
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                  label: Text(
+                    _obteniendoUbicacion
+                        ? 'Obteniendo ubicación...'
+                        : 'Usar mi ubicación actual',
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
