@@ -530,6 +530,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   final MobileScannerController _controller = MobileScannerController();
   String? _ultimoCodigoProcesado;
   Timer? _debounce;
+  bool _resolvidoValido = false;
   _EstadoPermisoCamara _estadoPermiso = _EstadoPermisoCamara.comprobando;
 
   @override
@@ -620,6 +621,8 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   }
 
   void _onDetect(BarcodeCapture captura) {
+    if (_resolvidoValido) return;
+
     String? valor;
     for (final barcode in captura.barcodes) {
       if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
@@ -634,6 +637,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
     _debounce?.cancel();
 
     if (esClaveAccesoValida(valor)) {
+      _resolvidoValido = true;
       Navigator.of(context).pop(valor);
       return;
     }
