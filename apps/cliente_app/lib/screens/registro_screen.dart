@@ -53,6 +53,22 @@ class _RegistroScreenState extends State<RegistroScreen> {
     }
   }
 
+  bool get _consentimientoPublicidadHabilitado {
+    final fecha = _fechaController.text.trim();
+    if (fecha.isEmpty) return false;
+    final edad = _calcularEdad(fecha);
+    return edad != null && edad >= 18;
+  }
+
+  void _aplicarReglasConsentimiento(String? fecha) {
+    final valor = fecha?.trim() ?? '';
+    final edad = valor.isEmpty ? null : _calcularEdad(valor);
+    final esMayorEdad = edad != null && edad >= 18;
+    setState(() {
+      _consentimientoPublicidad = esMayorEdad;
+    });
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -194,6 +210,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   hintText: 'YYYY-MM-DD',
                 ),
                 keyboardType: TextInputType.datetime,
+                onChanged: _aplicarReglasConsentimiento,
               ),
               const SizedBox(height: 16),
               CheckboxListTile(
@@ -205,10 +222,14 @@ class _RegistroScreenState extends State<RegistroScreen> {
                   'Requiere ser mayor de 18 años',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-                value: _consentimientoPublicidad,
-                onChanged: (value) {
-                  setState(() => _consentimientoPublicidad = value ?? false);
-                },
+                value:
+                    _consentimientoPublicidadHabilitado && _consentimientoPublicidad,
+                onChanged: _consentimientoPublicidadHabilitado
+                    ? (value) {
+                        setState(
+                            () => _consentimientoPublicidad = value ?? false);
+                      }
+                    : null,
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
               ),
