@@ -93,6 +93,34 @@ class AuthService {
     return _storage.read(key: _refreshTokenKey);
   }
 
+  Future<String?> refreshAccessToken() async {
+    final refreshToken = await _storage.read(key: _refreshTokenKey);
+    if (refreshToken == null || refreshToken.isEmpty) {
+      await logout();
+      return null;
+    }
+
+    try {
+      final response = await _api.post(
+        '/auth/refresh',
+        body: {'refresh_token': refreshToken},
+      );
+      final nuevoAccessToken = response['access_token'] as String?;
+      if (nuevoAccessToken == null || nuevoAccessToken.isEmpty) {
+        await logout();
+        return null;
+      }
+      await _storage.write(
+        key: _accessTokenKey,
+        value: nuevoAccessToken,
+      );
+      return nuevoAccessToken;
+    } catch (_) {
+      await logout();
+      return null;
+    }
+  }
+
   Future<String?> rolActual() async {
     return _storage.read(key: _roleKey);
   }
