@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
@@ -511,35 +513,69 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
   }
 }
 
-class _QrScannerScreen extends StatelessWidget {
+bool esClaveAccesoValida(String valor) =>
+    RegExp(r'^\d{49}$').hasMatch(valor);
+
+class _QrScannerScreen extends StatefulWidget {
   const _QrScannerScreen();
+
+  @override
+  State<_QrScannerScreen> createState() => _QrScannerScreenState();
+}
+
+class _QrScannerScreenState extends State<_QrScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController();
+  String? _ultimoCodigoProcesado;
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture captura) {
+    String? valor;
+    for (final barcode in captura.barcodes) {
+      if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
+        valor = barcode.rawValue;
+        break;
+      }
+    }
+    if (valor == null) return;
+
+    final esPrimeraDeteccion = _ultimoCodigoProcesado != valor;
+    _ultimoCodigoProcesado = valor;
+    _debounce?.cancel();
+
+    if (esClaveAccesoValida(valor)) {
+      Navigator.of(context).pop(valor);
+      return;
+    }
+
+    if (!esPrimeraDeteccion) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Este código QR no corresponde a una clave de acceso válida',
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    _debounce = Timer(const Duration(seconds: 3), () {
+      _ultimoCodigoProcesado = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Escanear QR')),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.qr_code_scanner, size: 72, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            const Text(
-              'Escáner no disponible en esta plataforma',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Ingrese la clave manualmente',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Volver'),
-            ),
-          ],
-        ),
+      body: MobileScanner(
+        controller: _controller,
+        onDetect: _onDetect,
       ),
     );
   }
