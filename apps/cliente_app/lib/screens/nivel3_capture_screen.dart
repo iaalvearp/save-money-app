@@ -68,7 +68,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
-        _error = 'No se pudo solicitar el desafío. Intente de nuevo.';
+        _error = 'No se pudo solicitar el desafío. Detalle: $e';
       });
     }
   }
@@ -137,7 +137,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
-        _error = 'Error al capturar la foto. Intente de nuevo.';
+        _error = 'Error al capturar la foto. Detalle: $e';
       });
     }
   }
@@ -176,7 +176,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
-        _error = 'Error de conexión. Verifique su internet.';
+        _error = 'Error de conexión. Detalle: $e';
       });
     }
   }

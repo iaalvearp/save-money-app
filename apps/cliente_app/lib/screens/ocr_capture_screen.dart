@@ -84,7 +84,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
       if (!mounted) return;
       setState(() {
         _procesando = false;
-        _error = 'Error al procesar la imagen. Intente de nuevo.';
+        _error = 'Error al procesar la imagen. Detalle: $e';
       });
     }
   }
