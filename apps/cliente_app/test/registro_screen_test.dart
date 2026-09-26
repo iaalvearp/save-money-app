@@ -13,10 +13,28 @@ CheckboxListTile _checkbox(WidgetTester tester) {
 }
 
 Future<void> _ingresarFecha(WidgetTester tester, String fecha) async {
-  await tester.enterText(
+  final partes = fecha.split('-');
+  final ano = int.parse(partes[0]);
+  final mes = int.parse(partes[1]);
+  final dia = int.parse(partes[2]);
+
+  await tester.tap(
     find.widgetWithText(TextFormField, 'Fecha de nacimiento (opcional)'),
-    fecha,
   );
+  await tester.pumpAndSettle();
+
+  await tester.tap(find.byIcon(Icons.edit_outlined));
+  await tester.pumpAndSettle();
+
+  final campoInput = find.descendant(
+    of: find.byType(DatePickerDialog),
+    matching: find.byType(TextFormField),
+  );
+  expect(campoInput, findsOneWidget);
+  await tester.enterText(campoInput, '$mes/$dia/$ano');
+  await tester.pumpAndSettle();
+
+  await tester.tap(find.text('OK'));
   await tester.pumpAndSettle();
 }
 
