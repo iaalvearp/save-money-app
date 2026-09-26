@@ -54,6 +54,35 @@ void main() {
       expect(llamadas, 2);
     });
 
+    test(
+        '401: si el reintento con el token nuevo también da 401, ese segundo 401 se propaga sin un tercer intento',
+        () async {
+      var llamadas = 0;
+      final api = ApiClient(
+        baseUrl: 'http://test',
+        httpClient: MockClient((request) async {
+          llamadas++;
+          return http.Response(
+            '{"error": "Token inválido o expirado"}',
+            401,
+            headers: _jsonHeaders,
+          );
+        }),
+        authService: _AuthFake('token-nuevo'),
+      );
+
+      await expectLater(
+        api.get('/protegido', token: 'token-viejo'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.statusCode, 'statusCode', 401)
+              .having((e) => e.message, 'message', 'Token inválido o expirado'),
+        ),
+      );
+
+      expect(llamadas, 2);
+    });
+
     test('401: el refresh también falla y el error original se propaga',
         () async {
       final api = ApiClient(
