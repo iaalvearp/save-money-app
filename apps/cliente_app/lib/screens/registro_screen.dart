@@ -18,6 +18,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   final _passwordController = TextEditingController();
   final _nombreController = TextEditingController();
   final _fechaController = TextEditingController();
+  String _fechaIso = '';
 
   String _rol = 'cliente';
   bool _consentimientoPublicidad = false;
@@ -54,7 +55,7 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   bool get _consentimientoPublicidadHabilitado {
-    final fecha = _fechaController.text.trim();
+    final fecha = _fechaIso;
     if (fecha.isEmpty) return false;
     final edad = _calcularEdad(fecha);
     return edad != null && edad >= 18;
@@ -66,10 +67,49 @@ class _RegistroScreenState extends State<RegistroScreen> {
     });
   }
 
+  String _aFormatoIso(DateTime fecha) {
+    final mes = fecha.month.toString().padLeft(2, '0');
+    final dia = fecha.day.toString().padLeft(2, '0');
+    return '${fecha.year}-$mes-$dia';
+  }
+
+  String _aFormatoLegible(DateTime fecha) {
+    final mes = fecha.month.toString().padLeft(2, '0');
+    final dia = fecha.day.toString().padLeft(2, '0');
+    return '$dia/$mes/${fecha.year}';
+  }
+
+  DateTime _fechaPorDefecto() {
+    final hoy = DateTime.now();
+    return DateTime(hoy.year - 18, hoy.month, hoy.day);
+  }
+
+  Future<void> _seleccionarFecha() async {
+    final hoy = DateTime.now();
+    final fechaInicial = _fechaIso.isNotEmpty
+        ? DateTime.parse(_fechaIso)
+        : _fechaPorDefecto();
+
+    final seleccionada = await showDatePicker(
+      context: context,
+      initialDate: fechaInicial,
+      firstDate: DateTime(hoy.year - 120),
+      lastDate: hoy,
+    );
+
+    if (seleccionada == null || !mounted) return;
+
+    setState(() {
+      _fechaIso = _aFormatoIso(seleccionada);
+      _fechaController.text = _aFormatoLegible(seleccionada);
+    });
+    _aplicarReglasConsentimiento(_fechaIso);
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final fechaNacimiento = _fechaController.text.trim();
+    final fechaNacimiento = _fechaIso;
     final edad = fechaNacimiento.isNotEmpty
         ? _calcularEdad(fechaNacimiento)
         : null;
@@ -201,13 +241,14 @@ class _RegistroScreenState extends State<RegistroScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _fechaController,
+                readOnly: true,
+                onTap: _seleccionarFecha,
                 decoration: const InputDecoration(
                   labelText: 'Fecha de nacimiento (opcional)',
                   border: OutlineInputBorder(),
-                  hintText: 'YYYY-MM-DD',
+                  hintText: 'Seleccione una fecha',
+                  suffixIcon: Icon(Icons.calendar_today),
                 ),
-                keyboardType: TextInputType.datetime,
-                onChanged: _aplicarReglasConsentimiento,
               ),
               const SizedBox(height: 16),
               CheckboxListTile(
