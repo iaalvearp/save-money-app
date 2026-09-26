@@ -80,6 +80,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
         Navigator.of(context).pop(resultado);
       }
     } catch (e) {
+      debugPrint('[ocr_capture] Error al procesar la imagen: $e');
       if (!mounted) return;
       setState(() {
         _procesando = false;

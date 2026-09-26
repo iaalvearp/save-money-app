@@ -64,6 +64,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
 
       _iniciarCuentaRegresiva();
     } catch (e) {
+      debugPrint('[nivel3_capture] Error al solicitar desafío: $e');
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
@@ -132,6 +133,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
 
       await _enviarClaim(claimHash: claimHash);
     } catch (e) {
+      debugPrint('[nivel3_capture] Error al capturar la foto: $e');
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
@@ -170,6 +172,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
         _error = e.message;
       });
     } catch (e) {
+      debugPrint('[nivel3_capture] Error de conexión al enviar claim: $e');
       if (!mounted) return;
       setState(() {
         _estado = _Estado.error;
