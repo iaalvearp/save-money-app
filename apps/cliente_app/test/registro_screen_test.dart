@@ -31,7 +31,7 @@ void main() {
       expect(checkbox.value, isFalse);
     });
 
-    testWidgets('mayor de edad queda habilitado y premarcado',
+    testWidgets('mayor de edad queda habilitado y sin marcar',
         (WidgetTester tester) async {
       final hoy = DateTime.now();
       final mayor = '${hoy.year - 20}-${_dosDigitos(hoy.month)}'
@@ -42,7 +42,7 @@ void main() {
 
       var checkbox = _checkbox(tester);
       expect(checkbox.onChanged, isNotNull);
-      expect(checkbox.value, isTrue);
+      expect(checkbox.value, isFalse);
 
       await tester.tap(
         find.widgetWithText(
@@ -53,7 +53,7 @@ void main() {
       await tester.pumpAndSettle();
 
       checkbox = _checkbox(tester);
-      expect(checkbox.value, isFalse);
+      expect(checkbox.value, isTrue);
     });
 
     testWidgets('menor de edad queda deshabilitado y sin marcar, sin excepción',
@@ -92,7 +92,7 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: RegistroScreen()));
 
       await _ingresarFecha(tester, mayor);
-      expect(_checkbox(tester).value, isTrue);
+      expect(_checkbox(tester).value, isFalse);
 
       await _ingresarFecha(tester, menor);
       var checkbox = _checkbox(tester);
@@ -102,7 +102,7 @@ void main() {
       await _ingresarFecha(tester, mayor);
       checkbox = _checkbox(tester);
       expect(checkbox.onChanged, isNotNull);
-      expect(checkbox.value, isTrue);
+      expect(checkbox.value, isFalse);
     });
   });
 }

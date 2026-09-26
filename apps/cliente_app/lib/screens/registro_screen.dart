@@ -61,11 +61,8 @@ class _RegistroScreenState extends State<RegistroScreen> {
   }
 
   void _aplicarReglasConsentimiento(String? fecha) {
-    final valor = fecha?.trim() ?? '';
-    final edad = valor.isEmpty ? null : _calcularEdad(valor);
-    final esMayorEdad = edad != null && edad >= 18;
     setState(() {
-      _consentimientoPublicidad = esMayorEdad;
+      _consentimientoPublicidad = false;
     });
   }
 
