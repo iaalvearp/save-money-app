@@ -7,24 +7,40 @@ import 'screens/login_screen.dart';
 import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
 import 'services/notificaciones_service.dart';
+import 'services/theme_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  runApp(const MyApp());
+  final themeService = await ThemeService.cargar();
+  runApp(MyApp(themeService: themeService));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final ThemeService themeService;
+
+  const MyApp({super.key, required this.themeService});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Save Money',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const SessionGate(),
+    return ListenableBuilder(
+      listenable: themeService,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Save Money',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              brightness: Brightness.dark,
+            ),
+          ),
+          themeMode: themeService.modo,
+          home: const SessionGate(),
+        );
+      },
     );
   }
 }
