@@ -5,6 +5,7 @@ import 'package:http/testing.dart';
 
 import 'package:cliente_app/screens/crear_evento_screen.dart';
 import 'package:cliente_app/screens/cupon_consolacion_screen.dart';
+import 'package:cliente_app/screens/evento_detalle_screen.dart';
 import 'package:cliente_app/screens/organizador_home_screen.dart';
 import 'package:cliente_app/screens/premios_screen.dart';
 import 'package:cliente_app/screens/revision_entradas_screen.dart';
@@ -609,6 +610,146 @@ void main() {
         find.text('Cupones emitidos para 2 participante(s)'),
         findsOneWidget,
       );
+    });
+  });
+
+  group('EventoDetalleScreen - botón Iniciar Hunt', () {
+    const eventoId = 42;
+
+    String bodyEvento(String estado) {
+      return '{"evento": {"id": $eventoId, "organizador_id": 7, '
+          '"nombre": "Hunt nocturno", '
+          '"fecha_inicio": "2026-10-01 19:00:00", '
+          '"fecha_fin": "2026-10-01 20:00:00", '
+          '"estado": "$estado"}, '
+          '"premios": [], "rondas": [], "sponsors": []}';
+    }
+
+    /// Monta la pantalla con un evento en el estado indicado y registra todas
+    /// las rutas pedidas, para poder distinguir la carga inicial (GET) de la
+    /// acción de iniciar (POST).
+    Future<List<String>> montar(
+      WidgetTester tester, {
+      required String estado,
+    }) async {
+      final rutas = <String>[];
+
+      final servicio = _servicioHuntCon(
+        MockClient((request) async {
+          rutas.add('${request.method} ${request.url.path}');
+
+          if (request.url.path.endsWith('/iniciar')) {
+            return http.Response(
+              '{"mensaje": "Hunt iniciado", "notificados": 3}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            bodyEvento(estado),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventoDetalleScreen(
+            eventoId: eventoId,
+            servicio: servicio,
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      return rutas;
+    }
+
+    testWidgets('muestra el botón cuando el evento no está iniciado',
+        (WidgetTester tester) async {
+      await montar(tester, estado: 'programado');
+
+      expect(find.text('Iniciar Hunt'), findsOneWidget);
+
+      final boton = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('Iniciar Hunt'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(boton.onPressed, isNotNull);
+    });
+
+    testWidgets('deshabilita el botón y avisa cuando el evento ya está activo',
+        (WidgetTester tester) async {
+      await montar(tester, estado: 'activo');
+
+      expect(find.text('Hunt en marcha'), findsOneWidget);
+      expect(find.text('Iniciar Hunt'), findsNothing);
+      expect(find.text('Los participantes ya fueron notificados.'),
+          findsOneWidget);
+    });
+
+    testWidgets('al tocarlo pide confirmación y nombra el evento',
+        (WidgetTester tester) async {
+      final rutas = await montar(tester, estado: 'programado');
+
+      await tester.ensureVisible(find.text('Iniciar Hunt'));
+      await tester.tap(find.text('Iniciar Hunt'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+        find.textContaining('Se notificará a los participantes de '
+            '"Hunt nocturno"'),
+        findsOneWidget,
+      );
+      expect(find.text('Cancelar'), findsOneWidget);
+      expect(find.text('Iniciar'), findsOneWidget);
+
+      // Todavía no debe haber salido ninguna llamada al backend.
+      expect(rutas.where((r) => r.endsWith('/iniciar')), isEmpty);
+    });
+
+    testWidgets('al confirmar llama a POST /hunt/eventos/:id/iniciar',
+        (WidgetTester tester) async {
+      final rutas = await montar(tester, estado: 'programado');
+
+      await tester.ensureVisible(find.text('Iniciar Hunt'));
+      await tester.tap(find.text('Iniciar Hunt'));
+      await tester.pumpAndSettle();
+
+      // El diálogo debe estar visible: si no, "cancelar" no probaría nada.
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tap(find.text('Iniciar'));
+      await tester.pumpAndSettle();
+
+      expect(rutas, contains('POST /hunt/eventos/$eventoId/iniciar'));
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Hunt iniciado. 3 notificados'), findsOneWidget);
+    });
+
+    testWidgets('al cancelar no hace ninguna llamada de red',
+        (WidgetTester tester) async {
+      final rutas = await montar(tester, estado: 'programado');
+      final cargaInicial = List<String>.from(rutas);
+
+      await tester.ensureVisible(find.text('Iniciar Hunt'));
+      await tester.tap(find.text('Iniciar Hunt'));
+      await tester.pumpAndSettle();
+
+      // El diálogo debe estar visible: si no, "cancelar" no probaría nada.
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(rutas, cargaInicial);
+      expect(rutas.where((r) => r.startsWith('POST')), isEmpty);
     });
   });
 }
