@@ -28,6 +28,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Se usa la cámara para escanear códigos QR e identificar la clave de acceso de tus facturas.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Se usa tu ubicación para mostrarte comercios y promociones Flash cercanas, y completarla en tu perfil de negocio.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Se elige una foto de tu galería para adjuntar el comprobante de una compra o de una entrada a un evento.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
