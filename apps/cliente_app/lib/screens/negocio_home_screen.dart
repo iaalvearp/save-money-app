@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
+import 'ajustes_sheet.dart';
 import 'canjear_cupon_screen.dart';
-import 'login_screen.dart';
 import 'mi_comercio_form_screen.dart';
 import 'mis_promociones_flash_screen.dart';
 
@@ -79,14 +79,9 @@ class _NegocioHomeScreenState extends State<NegocioHomeScreen> {
         title: const Text('Mi negocio'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await _auth.logout();
-              if (!context.mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-              );
-            },
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ajustes',
+            onPressed: () => abrirAjustes(context, auth: _auth),
           ),
         ],
       ),

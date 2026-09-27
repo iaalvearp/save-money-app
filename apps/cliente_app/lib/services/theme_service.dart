@@ -31,3 +31,13 @@ class ThemeService extends ChangeNotifier {
     await prefs.setString(_preferenceKey, modo.name);
   }
 }
+
+class ThemeScope extends InheritedNotifier<ThemeService> {
+  const ThemeScope({super.key, required ThemeService super.notifier, required super.child});
+
+  static ThemeService of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<ThemeScope>();
+    assert(scope?.notifier != null, 'ThemeScope no encontrado en el árbol');
+    return scope!.notifier!;
+  }
+}

@@ -3,14 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
 import '../services/notificaciones_service.dart';
+import 'ajustes_sheet.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
 import 'historial_facturas_screen.dart';
 import 'hunt_screen.dart';
-import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -212,14 +211,9 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await AuthService().logout();
-              if (!context.mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-              );
-            },
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ajustes',
+            onPressed: () => abrirAjustes(context),
           ),
         ],
       ),

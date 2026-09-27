@@ -23,24 +23,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: themeService,
-      builder: (context, _) {
-        return MaterialApp(
-          title: 'Save Money',
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-          ),
-          darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.deepPurple,
-              brightness: Brightness.dark,
+    return ThemeScope(
+      notifier: themeService,
+      child: ListenableBuilder(
+        listenable: themeService,
+        builder: (context, _) {
+          return MaterialApp(
+            title: 'Save Money',
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
             ),
-          ),
-          themeMode: themeService.modo,
-          home: const SessionGate(),
-        );
-      },
+            darkTheme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: Colors.deepPurple,
+                brightness: Brightness.dark,
+              ),
+            ),
+            themeMode: themeService.modo,
+            home: const SessionGate(),
+          );
+        },
+      ),
     );
   }
 }

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import 'ajustes_sheet.dart';
 import 'crear_evento_screen.dart';
 import 'evento_detalle_screen.dart';
-import 'login_screen.dart';
 
 class OrganizadorHomeScreen extends StatefulWidget {
   final HuntService? servicio;
@@ -78,14 +78,9 @@ class _OrganizadorHomeScreenState extends State<OrganizadorHomeScreen> {
         title: const Text('Organizador'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await _auth.logout();
-              if (!context.mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-              );
-            },
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ajustes',
+            onPressed: () => abrirAjustes(context, auth: _auth),
           ),
         ],
       ),
