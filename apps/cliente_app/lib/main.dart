@@ -8,6 +8,7 @@ import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
 import 'services/notificaciones_service.dart';
 import 'services/theme_service.dart';
+import 'widgets/reporte_ubicacion.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,7 +86,10 @@ class _SessionGateState extends State<SessionGate> {
           );
         }
 
-        return snapshot.data ?? const LoginScreen();
+        final pantalla = snapshot.data ?? const LoginScreen();
+        if (pantalla is LoginScreen) return pantalla;
+
+        return ReporteUbicacion(child: pantalla);
       },
     );
   }

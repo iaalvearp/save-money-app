@@ -40,6 +40,22 @@ class NotificacionesService {
     }
   }
 
+  /// Reporta la posición actual del usuario para que el backend evalúe
+  /// promociones Flash cercanas. Solo se llama con la app en primer plano.
+  Future<void> reportarUbicacion({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final accessToken = await _auth.getAccessToken();
+    if (accessToken == null) return;
+
+    await _api.put(
+      '/auth/ubicacion',
+      body: {'latitud': latitude, 'longitud': longitude},
+      token: accessToken,
+    );
+  }
+
   Future<Map<String, dynamic>> probarNotificacion() async {
     final accessToken = await _auth.getAccessToken();
     if (accessToken == null) {

@@ -1,6 +1,9 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { sign, verify } from "@tsndr/cloudflare-worker-jwt";
 import type { AppEnv } from "../../index";
+import { notificarAUsuarios } from "../notificaciones/index";
+import { haversineDistance } from "../flash/index";
 
 const auth = new Hono<AppEnv>();
 
@@ -389,22 +392,32 @@ auth.patch("/consentimiento", async (c) => {
   });
 });
 
-auth.put("/fcm-token", async (c) => {
-  const db = c.env.DB;
+type ResultadoAuth =
+  | { userId: number; error?: undefined }
+  | { userId?: undefined; error: string };
+
+/** Verifica el access token y devuelve el id del usuario o el error a responder. */
+async function autenticar(c: Context<AppEnv>): Promise<ResultadoAuth> {
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
-    return c.json({ error: "Token requerido" }, 401);
+    return { error: "Token requerido" };
   }
 
-  const token = authHeader.slice(7);
-  const secret = c.env.JWT_SECRET;
-  const decoded = await verify(token, secret);
+  const decoded = await verify(authHeader.slice(7), c.env.JWT_SECRET);
   if (!decoded) {
-    return c.json({ error: "Token inválido o expirado" }, 401);
+    return { error: "Token inválido o expirado" };
   }
 
   const payload = decoded.payload as unknown as CustomJwtPayload;
-  const userId = Number(payload.sub);
+  return { userId: Number(payload.sub) };
+}
+
+auth.put("/fcm-token", async (c) => {
+  const db = c.env.DB;
+  const auth = await autenticar(c);
+  if (auth.userId === undefined) {
+    return c.json({ error: auth.error }, 401);
+  }
 
   const body = await c.req.json<{ fcm_token?: string }>();
 
@@ -412,10 +425,107 @@ auth.put("/fcm-token", async (c) => {
 
   await db
     .prepare("UPDATE usuarios SET fcm_token = ? WHERE id = ?")
-    .bind(fcmToken, userId)
+    .bind(fcmToken, auth.userId)
     .run();
 
   return c.json({ ok: true });
+});
+
+/**
+ * Registra la última posición conocida del usuario y notifica las promociones
+ * Flash activas que entren en su radio.
+ *
+ * La notificación se envía como máximo una vez por usuario+promoción: la fila
+ * se reclama ANTES de enviar (INSERT OR IGNORE + UNIQUE), así que dos reportes
+ * simultáneos no pueden duplicar el push. Prioriza "nunca repetir" sobre
+ * "nunca perder", que es la regla de negocio acordada.
+ */
+auth.put("/ubicacion", async (c) => {
+  const db = c.env.DB;
+  const auth = await autenticar(c);
+  if (auth.userId === undefined) {
+    return c.json({ error: auth.error }, 401);
+  }
+  const userId = auth.userId;
+
+  const body = await c.req.json<{ latitud?: number; longitud?: number }>();
+  const latitud = Number(body.latitud);
+  const longitud = Number(body.longitud);
+
+  if (!isFinite(latitud) || !isFinite(longitud)) {
+    return c.json({ error: "latitud y longitud son requeridos" }, 400);
+  }
+  if (latitud < -90 || latitud > 90 || longitud < -180 || longitud > 180) {
+    return c.json({ error: "Coordenadas fuera de rango" }, 400);
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO ubicaciones_usuarios (usuario_id, latitud, longitud, actualizado_en)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT (usuario_id) DO UPDATE SET
+         latitud = excluded.latitud,
+         longitud = excluded.longitud,
+         actualizado_en = excluded.actualizado_en`
+    )
+    .bind(userId, latitud, longitud)
+    .run();
+
+  const nearby = await db
+    .prepare(
+      `SELECT pf.id, pf.titulo, pf.latitud, pf.longitud, pf.radio_km,
+              c.nombre AS comercio_nombre
+       FROM promociones_flash pf
+       JOIN comercios c ON pf.comercio_id = c.id
+       WHERE pf.inicia_en <= datetime('now')
+         AND pf.termina_en > datetime('now')
+         AND pf.latitud IS NOT NULL
+         AND pf.longitud IS NOT NULL`
+    )
+    .all<{
+      id: number;
+      titulo: string;
+      latitud: number;
+      longitud: number;
+      radio_km: number | null;
+      comercio_nombre: string;
+    }>();
+
+  let notificadas = 0;
+  for (const promo of nearby.results ?? []) {
+    const radio = promo.radio_km ?? 5;
+    const distancia = haversineDistance(
+      latitud,
+      longitud,
+      promo.latitud,
+      promo.longitud
+    );
+    if (distancia > radio) continue;
+
+    // Reclamar la combinación usuario+promoción antes de enviar.
+    const reclamo = await db
+      .prepare(
+        `INSERT OR IGNORE INTO flash_notificaciones_enviadas (usuario_id, promocion_id)
+         VALUES (?, ?)`
+      )
+      .bind(userId, promo.id)
+      .run();
+
+    const yaNotificado =
+      (reclamo.meta.changes ?? 0) === 0;
+    if (yaNotificado) continue;
+
+    await notificarAUsuarios(
+      c,
+      [userId],
+      `Promoción cerca de ti: ${promo.titulo}`,
+      `${promo.comercio_nombre} tiene una promoción a ${distancia.toFixed(1)} km de ti.`,
+      { tipo: "flash_cercania", promocion_id: String(promo.id) }
+    );
+    notificadas++;
+  }
+
+  return c.json({ ok: true, notificadas });
 });
 
 export { auth };

@@ -37,6 +37,8 @@ function haversineDistance(
   return R * c;
 }
 
+export { haversineDistance };
+
 flash.get(
   "/promociones",
   authMiddleware,
