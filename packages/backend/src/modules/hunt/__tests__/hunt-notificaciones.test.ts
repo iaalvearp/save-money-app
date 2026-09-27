@@ -310,3 +310,113 @@ describe("POST /hunt/eventos/:id/iniciar - audiencia configurable", () => {
     expect(fcm.envios).toHaveLength(0);
   });
 });
+
+describe("POST /hunt/entradas/:id/revisar - entrada aprobada", () => {
+  async function revisarEntrada(
+    entradaId: number,
+    aprueba: boolean
+  ): Promise<Response> {
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    return app.request(
+      `/hunt/entradas/${entradaId}/revisar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ aprueba }),
+      },
+      { DB: db, JWT_SECRET, ...credenciales }
+    );
+  }
+
+  it("al aprobar notifica al dueño de la entrada, no a otros", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "pendiente_revision_comprobante",
+      [CLIENTE_PENDIENTE]: "pendiente_revision_comprobante",
+    });
+    const entradaId = (
+      await db
+        .prepare(
+          "SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?"
+        )
+        .bind(eventoId, CLIENTE_PENDIENTE)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    const res = await revisarEntrada(entradaId, true);
+
+    expect(res.status).toBe(200);
+    expect(fcm.envios).toHaveLength(1);
+    expect(fcm.envios[0].token).toBe("token-pendiente");
+    expect(fcm.envios[0].titulo).toBe("¡Tu entrada fue aprobada!");
+    expect(fcm.envios[0].cuerpo).toContain("Hunt de prueba");
+    expect(fcm.envios[0].data).toMatchObject({
+      tipo: "entrada_aprobada",
+      evento_id: String(eventoId),
+    });
+  });
+
+  it("al rechazar NO envía notificación", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "pendiente_revision_comprobante",
+    });
+    const entradaId = (
+      await db
+        .prepare(
+          "SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?"
+        )
+        .bind(eventoId, CLIENTE_APROBADO)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    const res = await revisarEntrada(entradaId, false);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { mensaje: string }).mensaje).toBe(
+      "Entrada rechazada"
+    );
+    expect(fcm.envios).toHaveLength(0);
+  });
+
+  it("omite la notificación si el cliente no tiene token FCM", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_SIN_TOKEN]: "pendiente_revision_comprobante",
+    });
+    const entradaId = (
+      await db
+        .prepare(
+          "SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?"
+        )
+        .bind(eventoId, CLIENTE_SIN_TOKEN)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    const res = await revisarEntrada(entradaId, true);
+
+    expect(res.status).toBe(200);
+    expect(fcm.envios).toHaveLength(0);
+  });
+
+  it("no aprueba ni notifica una entrada ya revisada", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "pendiente_revision_comprobante",
+    });
+    const entradaId = (
+      await db
+        .prepare(
+          "SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?"
+        )
+        .bind(eventoId, CLIENTE_APROBADO)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    await revisarEntrada(entradaId, true);
+    expect(fcm.envios).toHaveLength(1);
+
+    fcm.envios.length = 0;
+    const segunda = await revisarEntrada(entradaId, true);
+
+    expect(segunda.status).toBe(422);
+    expect(fcm.envios).toHaveLength(0);
+  });
+});

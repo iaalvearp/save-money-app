@@ -679,13 +679,20 @@ hunt.post(
 
     const entrada = await db
       .prepare(
-        `SELECT ent.*, e.organizador_id
+        `SELECT ent.*, e.organizador_id, e.nombre AS evento_nombre
          FROM entradas ent
          JOIN eventos e ON ent.evento_id = e.id
          WHERE ent.id = ?`
       )
       .bind(entradaId)
-      .first<{ id: number; organizador_id: number; estado: string }>();
+      .first<{
+        id: number;
+        organizador_id: number;
+        estado: string;
+        cliente_id: number;
+        evento_id: number;
+        evento_nombre: string;
+      }>();
 
     if (!entrada) {
       return c.json({ error: "Entrada no encontrada" }, 404);
@@ -711,6 +718,17 @@ hunt.post(
       )
       .bind(body.aprueba ? "aprobada" : "rechazada", user.sub, now, entradaId)
       .run();
+
+    // Solo se notifica la aprobación; un rechazo no genera push.
+    if (body.aprueba) {
+      await notificarAUsuarios(
+        c,
+        [entrada.cliente_id],
+        "¡Tu entrada fue aprobada!",
+        `Tu entrada para "${entrada.evento_nombre}" está aprobada. Ya puedes participar.`,
+        { tipo: "entrada_aprobada", evento_id: String(entrada.evento_id) }
+      );
+    }
 
     return c.json({
       mensaje: body.aprueba ? "Entrada aprobada" : "Entrada rechazada",
