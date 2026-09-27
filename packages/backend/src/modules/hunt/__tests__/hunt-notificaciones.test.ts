@@ -420,3 +420,120 @@ describe("POST /hunt/entradas/:id/revisar - entrada aprobada", () => {
     expect(fcm.envios).toHaveLength(0);
   });
 });
+
+describe("POST /hunt/eventos/:eventoId/premios/:premioId/reclamar - premio ganado", () => {
+  /** Evento en curso, con premio disponible y sin requisitos de entrada. */
+  async function crearEventoConPremio(
+    stock = 1
+  ): Promise<{ eventoId: number; premioId: number }> {
+    const res = await db
+      .prepare(
+        `INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada)
+         VALUES (?, ?, ?, ?, 0)`
+      )
+      .bind(ORGANIZADOR, "Hunt en curso", fecha(-1), fecha(1))
+      .run();
+    const eventoId = res.meta.last_row_id as number;
+
+    const premio = await db
+      .prepare(
+        `INSERT INTO premios (evento_id, nombre, stock, tipo) VALUES (?, ?, ?, 'principal')`
+      )
+      .bind(eventoId, "Cena de premio", stock)
+      .run();
+
+    return { eventoId, premioId: premio.meta.last_row_id as number };
+  }
+
+  async function reclamar(
+    eventoId: number,
+    premioId: number,
+    clienteId = CLIENTE_APROBADO
+  ): Promise<Response> {
+    const app = buildApp();
+    const token = await makeToken(clienteId, "cliente");
+    return app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      },
+      { DB: db, JWT_SECRET, ...credenciales }
+    );
+  }
+
+  it("notifica al ganador con los datos correctos del premio", async () => {
+    const { eventoId, premioId } = await crearEventoConPremio();
+
+    const res = await reclamar(eventoId, premioId);
+
+    expect(res.status).toBe(201);
+    expect(fcm.envios).toHaveLength(1);
+    expect(fcm.envios[0].token).toBe("token-aprobado");
+    expect(fcm.envios[0].titulo).toBe("¡Ganaste un premio!");
+    expect(fcm.envios[0].cuerpo).toContain("Cena de premio");
+    expect(fcm.envios[0].data).toMatchObject({
+      tipo: "premio_ganado",
+      evento_id: String(eventoId),
+      premio_id: String(premioId),
+    });
+  });
+
+  it("dispara la notificación en el mismo reclamo, sin aprobación del organizador", async () => {
+    const { eventoId, premioId } = await crearEventoConPremio();
+
+    await reclamar(eventoId, premioId);
+
+    // El ganador ya está registrado en premios_entregados en el mismo instante.
+    const entregado = await db
+      .prepare("SELECT usuario_id FROM premios_entregados WHERE premio_id = ?")
+      .bind(premioId)
+      .first<{ usuario_id: number }>();
+    expect(entregado?.usuario_id).toBe(CLIENTE_APROBADO);
+    expect(fcm.envios).toHaveLength(1);
+  });
+
+  it("no notifica si el reclamo es rechazado por stock agotado", async () => {
+    const { eventoId, premioId } = await crearEventoConPremio(1);
+    await reclamar(eventoId, premioId);
+    fcm.envios.length = 0;
+
+    const segundo = await reclamar(eventoId, premioId, CLIENTE_PENDIENTE);
+
+    expect(segundo.status).toBe(422);
+    expect(fcm.envios).toHaveLength(0);
+  });
+
+  it("no notifica si el usuario ya reclamó un premio en esa ronda", async () => {
+    const { eventoId, premioId } = await crearEventoConPremio(5);
+    await reclamar(eventoId, premioId);
+    fcm.envios.length = 0;
+
+    const repetido = await reclamar(eventoId, premioId);
+
+    expect(repetido.status).toBe(409);
+    expect(fcm.envios).toHaveLength(0);
+  });
+
+  it("no notifica fuera del horario del evento", async () => {
+    const res = await db
+      .prepare(
+        `INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada)
+         VALUES (?, ?, ?, ?, 0)`
+      )
+      .bind(ORGANIZADOR, "Hunt pasado", fecha(-5), fecha(-2))
+      .run();
+    const eventoId = res.meta.last_row_id as number;
+    const premio = await db
+      .prepare(
+        `INSERT INTO premios (evento_id, nombre, stock, tipo) VALUES (?, ?, 1, 'principal')`
+      )
+      .bind(eventoId, "Premio pasado")
+      .run();
+
+    const res2 = await reclamar(eventoId, premio.meta.last_row_id as number);
+
+    expect(res2.status).toBe(422);
+    expect(fcm.envios).toHaveLength(0);
+  });
+});

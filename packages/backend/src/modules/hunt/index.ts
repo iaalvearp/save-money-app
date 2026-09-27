@@ -565,6 +565,16 @@ hunt.post(
       .bind(eventoId, user.sub)
       .run();
 
+    // El reclamo registra al ganador y dispara el push en el mismo momento:
+    // no hay paso de aprobacion intermedio del organizador.
+    await notificarAUsuarios(
+      c,
+      [user.sub],
+      "¡Ganaste un premio!",
+      `Reclamaste "${premio.nombre}". Pasa a recogerlo con el organizador.`,
+      { tipo: "premio_ganado", evento_id: String(eventoId), premio_id: String(premioId) }
+    );
+
     return c.json({
       mensaje: `Premio "${premio.nombre}" reclamado`,
       premio_id: premioId,
