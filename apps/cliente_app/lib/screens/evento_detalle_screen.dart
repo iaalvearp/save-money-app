@@ -97,6 +97,74 @@ class _EventoDetalleScreenState extends State<EventoDetalleScreen> {
     }
   }
 
+  Future<void> _iniciarHunt() async {
+    final evento = _evento;
+    if (evento == null) return;
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Iniciar Hunt'),
+        content: Text(
+          'Se notificará a los participantes de "${evento.nombre}" que el Hunt '
+          'comenzó. ¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Iniciar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true || !mounted) return;
+
+    try {
+      final token = await _auth.getAccessToken();
+      final response = await _servicio.iniciarHunt(
+        eventoId: evento.id,
+        token: token,
+      );
+      if (!mounted) return;
+      final notificados = response['notificados'] as int? ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hunt iniciado. $notificados notificados')),
+      );
+      _cargar();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo iniciar el Hunt')),
+      );
+    }
+  }
+
+  Widget _buildIniciarSection(Evento evento) {
+    final activo = evento.estado == 'activo';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FilledButton.icon(
+          onPressed: activo ? null : _iniciarHunt,
+          icon: const Icon(Icons.play_arrow),
+          label: Text(activo ? 'Hunt en marcha' : 'Iniciar Hunt'),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          activo
+              ? 'Los participantes ya fueron notificados.'
+              : 'Al iniciar, se notifica a los participantes según la audiencia '
+                  'configurada en el sistema.',
+          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,6 +207,8 @@ class _EventoDetalleScreenState extends State<EventoDetalleScreen> {
             '${evento.fechaFin.split(' ').first}',
             style: TextStyle(color: Colors.grey[600]),
           ),
+          const SizedBox(height: 16),
+          _buildIniciarSection(evento),
           const SizedBox(height: 16),
           _buildRondasSection(),
           const Divider(height: 24),

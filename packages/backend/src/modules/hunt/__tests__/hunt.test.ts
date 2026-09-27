@@ -44,6 +44,7 @@ beforeAll(async () => {
     fecha_nacimiento TEXT,
     consentimiento_publicidad INTEGER,
     consentimiento_publicidad_fecha TEXT,
+    fcm_token TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`).run();
 
@@ -69,6 +70,7 @@ beforeAll(async () => {
     fecha_fin TEXT NOT NULL,
     requiere_entrada INTEGER NOT NULL DEFAULT 0,
     precio_entrada REAL,
+    estado TEXT NOT NULL DEFAULT 'programado' CHECK (estado IN ('programado','activo','finalizado')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`).run();
 

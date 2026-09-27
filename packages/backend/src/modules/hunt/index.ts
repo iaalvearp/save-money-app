@@ -1,11 +1,14 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
 import { emitirCupon } from "../cupones/index";
+import { notificarAUsuarios } from "../notificaciones/index";
 
 interface AppEnv {
   Bindings: {
     DB: D1Database;
     JWT_SECRET: string;
+    FCM_CLIENT_EMAIL: string;
+    FCM_PRIVATE_KEY: string;
   };
   Variables: {
     user: { sub: number; rol: string };
@@ -137,6 +140,70 @@ hunt.post(
       .first();
 
     return c.json({ evento: created }, 201);
+  }
+);
+
+hunt.post(
+  "/eventos/:id/iniciar",
+  authMiddleware,
+  requireRole("organizador", "admin"),
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const eventoId = c.req.param("id");
+
+    const evento = await db
+      .prepare(
+        "SELECT id, organizador_id, nombre, estado FROM eventos WHERE id = ?"
+      )
+      .bind(eventoId)
+      .first<{ id: number; organizador_id: number; nombre: string; estado: string }>();
+
+    if (!evento) {
+      return c.json({ error: "Evento no encontrado" }, 404);
+    }
+    if (user.rol !== "admin" && evento.organizador_id !== user.sub) {
+      return c.json({ error: "No tienes permiso" }, 403);
+    }
+
+    const config = await db
+      .prepare("SELECT valor FROM configuraciones_sistema WHERE clave = ?")
+      .bind("hunt_inicio_notificar_a")
+      .first<{ valor: string }>();
+
+    // Audience is read from the database on every call so it can be changed
+    // without redeploying. Any unknown value falls back to 'aprobados'.
+    const soloAprobados = (config?.valor ?? "aprobados") !== "todos";
+
+    const destinatarios = await db
+      .prepare(
+        `SELECT DISTINCT ent.cliente_id AS usuario_id
+         FROM entradas ent
+         WHERE ent.evento_id = ?${soloAprobados ? " AND ent.estado = 'aprobada'" : ""}`
+      )
+      .bind(eventoId)
+      .all<{ usuario_id: number }>();
+
+    const notificados = await notificarAUsuarios(
+      c,
+      (destinatarios.results ?? []).map((r) => r.usuario_id),
+      `¡${evento.nombre} ha comenzado!`,
+      "El Hunt ya está en marcha. Revisa los premios disponibles y participa.",
+      { tipo: "hunt_inicio", evento_id: String(eventoId) }
+    );
+
+    await db
+      .prepare("UPDATE eventos SET estado = 'activo' WHERE id = ?")
+      .bind(eventoId)
+      .run();
+
+    return c.json({
+      mensaje: "Hunt iniciado",
+      evento_id: Number(eventoId),
+      estado: "activo",
+      audiencia: soloAprobados ? "aprobados" : "todos",
+      notificados,
+    });
   }
 );
 

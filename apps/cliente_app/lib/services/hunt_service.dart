@@ -10,6 +10,7 @@ class Evento {
   final double? precioEntrada;
   final String? organizadorNombre;
   final int? entradasVendidas;
+  final String? estado;
 
   Evento({
     required this.id,
@@ -21,6 +22,7 @@ class Evento {
     this.precioEntrada,
     this.organizadorNombre,
     this.entradasVendidas,
+    this.estado,
   });
 
   factory Evento.fromJson(Map<String, dynamic> json) {
@@ -34,6 +36,7 @@ class Evento {
       precioEntrada: (json['precio_entrada'] as num?)?.toDouble(),
       organizadorNombre: json['organizador_nombre'] as String?,
       entradasVendidas: json['entradas_vendidas'] as int?,
+      estado: json['estado'] as String?,
     );
   }
 
@@ -273,6 +276,17 @@ class HuntService {
       if (precioEntrada != null) 'precio_entrada': precioEntrada,
     }, token: token);
     return Evento.fromJson(response['evento'] as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> iniciarHunt({
+    required int eventoId,
+    String? token,
+  }) async {
+    return _api.post(
+      '/hunt/eventos/$eventoId/iniciar',
+      body: const {},
+      token: token,
+    );
   }
 
   Future<Ronda> crearRonda({

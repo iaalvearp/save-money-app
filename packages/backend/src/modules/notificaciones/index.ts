@@ -18,6 +18,16 @@ type NotificacionesEnv = {
   };
 };
 
+// Minimum shape required to deliver a push. Declared structurally (instead of
+// Hono's Context) so any module (hunt, flash, ...) can reuse this very same
+// sender without its env having to match exactly.
+type FcmContexto = {
+  env: {
+    FCM_CLIENT_EMAIL: string;
+    FCM_PRIVATE_KEY: string;
+  };
+};
+
 const notificaciones = new Hono<NotificacionesEnv>();
 
 function base64UrlEncode(data: Uint8Array | ArrayBuffer): string {
@@ -125,7 +135,7 @@ function projectIdDeClientEmail(clientEmail: string): string {
 }
 
 export async function enviarNotificacion(
-  c: Context<NotificacionesEnv>,
+  c: FcmContexto,
   fcmToken: string | null | undefined,
   titulo: string,
   cuerpo: string,
@@ -197,5 +207,37 @@ notificaciones.post(
     return c.json({ ok: true, mensaje: "Notificación de prueba enviada" });
   }
 );
+
+/**
+ * Envía una misma notificación a varios usuarios reutilizando `enviarNotificacion`.
+ * Los usuarios sin token FCM registrado se omiten silenciosamente.
+ * Devuelve cuántos envíos reales se hicieron (los que tenían token).
+ */
+export async function notificarAUsuarios(
+  c: FcmContexto & { env: { DB: D1Database } },
+  usuarioIds: number[],
+  titulo: string,
+  cuerpo: string,
+  data?: Record<string, string>
+): Promise<number> {
+  const unicos = [...new Set(usuarioIds)];
+  if (unicos.length === 0) {
+    return 0;
+  }
+
+  const placeholders = unicos.map(() => "?").join(", ");
+  const filas = await c.env.DB
+    .prepare(`SELECT id, fcm_token FROM usuarios WHERE id IN (${placeholders})`)
+    .bind(...unicos)
+    .all<{ id: number; fcm_token: string | null }>();
+
+  let enviados = 0;
+  for (const fila of filas.results ?? []) {
+    if (!fila.fcm_token) continue;
+    await enviarNotificacion(c, fila.fcm_token, titulo, cuerpo, data);
+    enviados++;
+  }
+  return enviados;
+}
 
 export { notificaciones };
