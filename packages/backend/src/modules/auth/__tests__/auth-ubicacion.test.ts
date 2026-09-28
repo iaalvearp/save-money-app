@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { sign } from "@tsndr/cloudflare-worker-jwt";
 import { Hono } from "hono";
@@ -7,6 +7,7 @@ import { auth } from "../index";
 import {
   generarCredencialesFcmDePrueba,
   interceptarFcm,
+  credencialesFcmQueFallan,
   type CredencialesFcm,
 } from "../../../test-utils/fcm";
 
@@ -364,5 +365,47 @@ describe("PUT /auth/ubicacion - Flash por cercanía", () => {
 
     expect(res.status).toBe(401);
     expect(fcm.envios).toHaveLength(0);
+  });
+});
+
+/**
+ * Reportar la ubicacion guarda la posicion y lanza los avisos de Flash. Si el
+ * push falla, la posicion ya quedo guardada: eso es lo que fija esta prueba.
+ */
+describe("PUT /auth/ubicacion - un push de Flash caido", () => {
+  it("guarda la posicion y responde 200 aunque no se pueda notificar", async () => {
+    const promoId = await crearPromocion(LAT_QUITO + 0.001, LNG_QUITO, 1);
+
+    const app = buildApp();
+    const token = await makeToken(USUARIO_CON_TOKEN, "cliente");
+    const errores = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await app.request(
+      "/auth/ubicacion",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitud: LAT_QUITO, longitud: LNG_QUITO }),
+      },
+      { DB: db, JWT_SECRET, ...credencialesFcmQueFallan() }
+    );
+    errores.mockRestore();
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { ok: boolean; notificadas: number }).notificadas).toBe(0);
+
+    const fila = await db
+      .prepare("SELECT latitud FROM ubicaciones_usuarios WHERE usuario_id = ?")
+      .bind(USUARIO_CON_TOKEN)
+      .first<{ latitud: number }>();
+    expect(fila?.latitud).toBeCloseTo(LAT_QUITO, 5);
+
+    // La promocion se marco como notificada antes de intentar el envio: sin el
+    // aviso no se reintenta en el siguiente reporte de ubicacion.
+    const marcas = await db
+      .prepare("SELECT usuario_id FROM flash_notificaciones_enviadas WHERE promocion_id = ?")
+      .bind(promoId)
+      .all<{ usuario_id: number }>();
+    expect(marcas.results).toHaveLength(1);
   });
 });

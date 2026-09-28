@@ -46,6 +46,20 @@ export async function generarCredencialesFcmDePrueba(): Promise<CredencialesFcm>
 }
 
 /**
+ * Credenciales con una clave que no es una clave. Sirve para comprobar que un
+ * fallo de Firebase no rompe la acción que dispara la notificación: el texto
+ * es base64 válido (para que no dependa de cómo se lea la clave) pero
+ * `importKey` lo rechaza, que es exactamente lo que hace `enviarNotificacion`.
+ */
+export function credencialesFcmQueFallan(): CredencialesFcm {
+  return {
+    FCM_CLIENT_EMAIL:
+      "firebase-adminsdk-pruebas@save-money-pruebas.iam.gserviceaccount.com",
+    FCM_PRIVATE_KEY: "aGVsbG8gdGhpcyBub3QgaXMgYSBrZXk=",
+  };
+}
+
+/**
  * Intercepta las llamadas salientes a FCM y registra los mensajes realmente
  * enviados (token del dispositivo + payload), sin salir a internet.
  * Devuelve los envíos capturados y un `restaurar` para devolver `fetch`.

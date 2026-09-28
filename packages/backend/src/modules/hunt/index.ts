@@ -208,13 +208,23 @@ hunt.post(
       .bind(eventoId)
       .all<{ usuario_id: number }>();
 
-    const notificados = await notificarAUsuarios(
-      c,
-      (destinatarios.results ?? []).map((r) => r.usuario_id),
-      `¡${evento.nombre} ha comenzado!`,
-      "El Hunt ya está en marcha. Revisa los premios disponibles y participa.",
-      { tipo: "hunt_inicio", evento_id: String(eventoId) }
-    );
+    // Un push que falla no puede tumbar la acción principal: el Hunt se
+    // inicia igual y la respuesta debe reflejar eso, no el fallo del aviso.
+    let notificados = 0;
+    try {
+      notificados = await notificarAUsuarios(
+        c,
+        (destinatarios.results ?? []).map((r) => r.usuario_id),
+        `¡${evento.nombre} ha comenzado!`,
+        "El Hunt ya está en marcha. Revisa los premios disponibles y participa.",
+        { tipo: "hunt_inicio", evento_id: String(eventoId) }
+      );
+    } catch (error) {
+      console.error(
+        `No se pudo notificar el inicio del Hunt ${eventoId}:`,
+        error
+      );
+    }
 
     await db
       .prepare("UPDATE eventos SET estado = 'activo' WHERE id = ?")
@@ -741,13 +751,19 @@ hunt.post(
 
     // El reclamo registra al ganador y dispara el push en el mismo momento:
     // no hay paso de aprobacion intermedio del organizador.
-    await notificarAUsuarios(
-      c,
-      [user.sub],
-      "¡Ganaste un premio!",
-      `Reclamaste "${premio.nombre}". Pasa a recogerlo con el organizador.`,
-      { tipo: "premio_ganado", evento_id: String(eventoId), premio_id: String(premioId) }
-    );
+    // El reclamo ya quedó registrado y los puntos ya se ragaron más arriba.
+    // Si el push falla, el ganador sigue tendo su premio: solo se pierde el aviso.
+    try {
+      await notificarAUsuarios(
+        c,
+        [user.sub],
+        "¡Ganaste un premio!",
+        `Reclamaste "${premio.nombre}". Pasa a recogerlo con el organizador.`,
+        { tipo: "premio_ganado", evento_id: String(eventoId), premio_id: String(premioId) }
+      );
+    } catch (error) {
+      console.error(`No se pudo notificar el premio ${premioId} del evento ${eventoId}:`, error);
+    }
 
     return c.json({
       mensaje: `Premio "${premio.nombre}" reclamado`,
@@ -905,13 +921,18 @@ hunt.post(
 
     // Solo se notifica la aprobación; un rechazo no genera push.
     if (body.aprueba) {
-      await notificarAUsuarios(
-        c,
-        [entrada.cliente_id],
-        "¡Tu entrada fue aprobada!",
-        `Tu entrada para "${entrada.evento_nombre}" está aprobada. Ya puedes participar.`,
-        { tipo: "entrada_aprobada", evento_id: String(entrada.evento_id) }
-      );
+      // La entrada ya quedó aprobada más arriba. Un push caido no la revierte.
+      try {
+        await notificarAUsuarios(
+          c,
+          [entrada.cliente_id],
+          "¡Tu entrada fue aprobada!",
+          `Tu entrada para "${entrada.evento_nombre}" está aprobada. Ya puedes participar.`,
+          { tipo: "entrada_aprobada", evento_id: String(entrada.evento_id) }
+        );
+      } catch (error) {
+        console.error(`No se pudo notificar la entrada ${entradaId} aprobada:`, error);
+      }
     }
 
     return c.json({

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { sign } from "@tsndr/cloudflare-worker-jwt";
 import { Hono } from "hono";
@@ -7,6 +7,7 @@ import { hunt } from "../index";
 import {
   generarCredencialesFcmDePrueba,
   interceptarFcm,
+  credencialesFcmQueFallan,
   type CredencialesFcm,
 } from "../../../test-utils/fcm";
 
@@ -535,5 +536,127 @@ describe("POST /hunt/eventos/:eventoId/premios/:premioId/reclamar - premio ganad
 
     expect(res2.status).toBe(422);
     expect(fcm.envios).toHaveLength(0);
+  });
+});
+
+/**
+ * Un aviso push es un extra: si Firebase esta caido o la clave guardada esta
+ * rota, la accion principal (iniciar, aprobar, reclamar) ya esta hecha en la
+ * base de datos. Estas pruebas fijan que el usuario no vea un error por eso.
+ */
+describe("un push caido no rompe la accion principal", () => {
+  const credencialesQueFallan = credencialesFcmQueFallan();
+  let errores: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errores = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errores.mockRestore();
+  });
+
+  it("iniciar Hunt responde 200 y deja el evento activo", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "aprobada",
+    });
+
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/iniciar`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET, ...credencialesQueFallan }
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { mensaje: string; estado: string; notificados: number };
+    expect(body.mensaje).toBe("Hunt iniciado");
+    expect(body.estado).toBe("activo");
+    // Nadie fue notificado, pero el evento si arranco.
+    expect(body.notificados).toBe(0);
+
+    const evento = await db
+      .prepare("SELECT estado FROM eventos WHERE id = ?")
+      .bind(eventoId)
+      .first<{ estado: string }>();
+    expect(evento?.estado).toBe("activo");
+    expect(errores).toHaveBeenCalled();
+  });
+
+  it("aprobar entrada responde 200 y la entrada queda aprobada", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "pendiente_revision_comprobante",
+    });
+    const entradaId = (
+      await db
+        .prepare("SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?")
+        .bind(eventoId, CLIENTE_APROBADO)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    const res = await app.request(
+      `/hunt/entradas/${entradaId}/revisar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ aprueba: true }),
+      },
+      { DB: db, JWT_SECRET, ...credencialesQueFallan }
+    );
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { mensaje: string }).mensaje).toBe("Entrada aprobada");
+
+    const entrada = await db
+      .prepare("SELECT estado FROM entradas WHERE id = ?")
+      .bind(entradaId)
+      .first<{ estado: string }>();
+    expect(entrada?.estado).toBe("aprobada");
+    expect(errores).toHaveBeenCalled();
+  });
+
+  it("reclamar premio responde 201 y el premio queda entregado con sus puntos", async () => {
+    const evento = await db
+      .prepare(
+        `INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada)
+         VALUES (?, 'Hunt en curso', ?, ?, 0)`
+      )
+      .bind(ORGANIZADOR, fecha(-1), fecha(1))
+      .run();
+    const eventoId = evento.meta.last_row_id as number;
+    const premio = await db
+      .prepare(
+        `INSERT INTO premios (evento_id, nombre, stock, tipo) VALUES (?, 'Cena de premio', 1, 'principal')`
+      )
+      .bind(eventoId)
+      .run();
+    const premioId = premio.meta.last_row_id as number;
+
+    const app = buildApp();
+    const token = await makeToken(CLIENTE_APROBADO, "cliente");
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET, ...credencialesQueFallan }
+    );
+
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { mensaje: string }).mensaje).toContain("Cena de premio");
+
+    const entregado = await db
+      .prepare("SELECT usuario_id FROM premios_entregados WHERE premio_id = ?")
+      .bind(premioId)
+      .first<{ usuario_id: number }>();
+    expect(entregado?.usuario_id).toBe(CLIENTE_APROBADO);
+
+    const puntos = await db
+      .prepare("SELECT puntos FROM puntos_evento WHERE evento_id = ? AND usuario_id = ?")
+      .bind(eventoId, CLIENTE_APROBADO)
+      .first<{ puntos: number }>();
+    expect(puntos?.puntos).toBe(10);
+    expect(errores).toHaveBeenCalled();
   });
 });

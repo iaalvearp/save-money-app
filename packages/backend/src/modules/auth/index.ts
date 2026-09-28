@@ -581,14 +581,20 @@ auth.put("/ubicacion", async (c) => {
       (reclamo.meta.changes ?? 0) === 0;
     if (yaNotificado) continue;
 
-    await notificarAUsuarios(
-      c,
-      [userId],
-      `Promoción cerca de ti: ${promo.titulo}`,
-      `${promo.comercio_nombre} tiene una promoción a ${distancia.toFixed(1)} km de ti.`,
-      { tipo: "flash_cercania", promocion_id: String(promo.id) }
-    );
-    notificadas++;
+    // Un push caido para una promocion no debe saltarse las demas: cada
+    // iteracion va protegida y el conteo solo suma las que si salieron.
+    try {
+      await notificarAUsuarios(
+        c,
+        [userId],
+        `Promoción cerca de ti: ${promo.titulo}`,
+        `${promo.comercio_nombre} tiene una promoción a ${distancia.toFixed(1)} km de ti.`,
+        { tipo: "flash_cercania", promocion_id: String(promo.id) }
+      );
+      notificadas++;
+    } catch (error) {
+      console.error(`No se pudo notificar la promoción "${promo.titulo}":`, error);
+    }
   }
 
   return c.json({ ok: true, notificadas });
