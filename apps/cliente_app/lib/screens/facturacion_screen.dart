@@ -17,10 +17,15 @@ class FacturacionScreen extends StatefulWidget {
   final int comercioId;
   final String comercioNombre;
 
+  /// Fuerza la disponibilidad del escáner en vez de autodetectarla. Solo se
+  /// usa en pruebas, donde `dart:io Platform` no es Android ni iOS.
+  final bool? scannerDisponible;
+
   const FacturacionScreen({
     super.key,
     required this.comercioId,
     required this.comercioNombre,
+    this.scannerDisponible,
   });
 
   @override
@@ -43,7 +48,7 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
   @override
   void initState() {
     super.initState();
-    _scannerDisponible = _verificarScannerDisponible();
+    _scannerDisponible = widget.scannerDisponible ?? _verificarScannerDisponible();
   }
 
   @override

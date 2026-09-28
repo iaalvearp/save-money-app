@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cliente_app/screens/facturacion_screen.dart';
 
+import 'helpers/falso_permisos.dart';
+
 void main() {
   group('FacturacionScreen', () {
     testWidgets('renderiza campos de clave y botones',
@@ -90,6 +92,63 @@ void main() {
         find.widgetWithText(OutlinedButton, 'Escanear ticket'),
         findsOneWidget,
       );
+    });
+  });
+
+  group('FacturacionScreen - permiso de cámara bajo demanda', () {
+    late FalsoPermisos permisos;
+
+    setUp(() {
+      permisos = FalsoPermisos()..instalar();
+    });
+
+    tearDown(() {
+      permisos.desinstalar();
+    });
+
+    testWidgets('no pide el permiso de cámara al entrar a la pantalla',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: FacturacionScreen(
+            comercioId: 1,
+            comercioNombre: 'Test',
+            scannerDisponible: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // La pantalla muestra el botón de QR, pero aún no lo ha tocado nadie.
+      expect(
+        find.widgetWithText(OutlinedButton, 'Escanear código QR'),
+        findsOneWidget,
+      );
+      expect(permisos.llamadas, isEmpty);
+      expect(permisos.seSolicitoCamara, isFalse);
+    });
+
+    testWidgets('pide el permiso de cámara al tocar "Escanear código QR"',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: FacturacionScreen(
+            comercioId: 1,
+            comercioNombre: 'Test',
+            scannerDisponible: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(permisos.llamadas, isEmpty);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Escanear código QR'));
+      await tester.pumpAndSettle();
+
+      expect(permisos.seSolicitoCamara, isTrue);
+      // Navegó al escáner, que con permiso concedido muestra la vista previa.
+      expect(find.text('Escanear QR'), findsOneWidget);
     });
   });
 }
