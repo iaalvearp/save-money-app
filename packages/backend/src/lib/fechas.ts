@@ -260,3 +260,39 @@ export function traeHora(valor: string | null | undefined): boolean {
   if (texto === "") return false;
   return ISO_CON_ZONA.test(texto) || FECHA_HORA_SIN_ZONA.test(texto);
 }
+
+/**
+ * Año, mes y día tal como los escribió quien los escribió, en un texto.
+ *
+ * Es `partes` hecha pública, sin convertir a ningún instante. Sirve para las
+ * preguntas que son de calendario y no de reloj, como "¿ya cumplió N años?":
+ * para eso da igual la hora, solo importa el día que dice el texto.
+ */
+export function partesDeFecha(
+  valor: string | null | undefined
+): Partes | null {
+  return partes(valor);
+}
+
+/**
+ * El día de hoy según el calendario de Ecuador, a partir de un instante.
+ *
+ * Es el complemento de [diaComoCalendario]: las ventanas de negocio se escriben
+ * en hora de Ecuador, así que el "hoy" contra el que se comparan también tiene
+ * que estar en hora de Ecuador. Si no, entre las 19:00 y la medianoche el
+ * sistema ya creería que cambió el día y concede antes de tiempo.
+ *
+ * No usa los getters de hora local del runtime, sino los de UTC, que son los
+ * mismos en cualquier parte: un instante mas el offset fijo de Ecuador da el
+ * día que allí es, y el resultado no depende de dónde corra el código.
+ */
+export function calendarioEcuador(milisegundos?: number): Partes {
+  const instante = milisegundos ?? Date.now();
+  const corrida =
+    new Date(instante + OFFSET_ECUADOR_MINUTOS * 60000);
+  return {
+    anio: corrida.getUTCFullYear(),
+    mes: corrida.getUTCMonth() + 1,
+    dia: corrida.getUTCDate(),
+  };
+}

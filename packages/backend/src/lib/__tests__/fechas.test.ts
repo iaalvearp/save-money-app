@@ -7,6 +7,8 @@ import {
   instanteEnTextoUtc,
   ahoraEnUtc,
   traeHora,
+  partesDeFecha,
+  calendarioEcuador,
 } from "../fechas";
 
 /** Ecuador: el mediodia son las 17:00 UTC, porque va cinco horas atras. */
@@ -259,5 +261,104 @@ describe("traeHora", () => {
     expect(traeHora("")).toBe(false);
     expect(traeHora("   ")).toBe(false);
     expect(traeHora("no es fecha")).toBe(false);
+  });
+});
+
+describe("partesDeFecha", () => {
+  it("devuelve el año, mes y dia tal cual estan escritos en el texto", () => {
+    expect(partesDeFecha("2008-01-01")).toEqual({ anio: 2008, mes: 1, dia: 1 });
+    expect(partesDeFecha(" 2008-06-30 ")).toEqual({
+      anio: 2008,
+      mes: 6,
+      dia: 30,
+    });
+  });
+
+  it("acepta una fecha con hora y se queda con su dia", () => {
+    expect(partesDeFecha("2008-01-01T23:30:00Z")).toEqual({
+      anio: 2008,
+      mes: 1,
+      dia: 1,
+    });
+  });
+
+  it("no acepta un dia que no existe en el calendario", () => {
+    // El 30 de febrero es el ejemplo clasico: new Date lo normalizaba en
+    // silencio a 1 de marzo, y aqui se rechaza.
+    expect(partesDeFecha("2008-02-30")).toBeNull();
+    expect(partesDeFecha("2008-13-01")).toBeNull();
+    expect(partesDeFecha("2007-02-29")).toBeNull();
+  });
+
+  it("entiende el formato europeo DD/MM/AAAA, que no es ambiguo", () => {
+    // Aceptarlo es una mejora frente a new Date, que devolvia Invalid Date
+    // y dejaba la edad en NaN. DD/MM no se confunde con MM/DD, asi que no
+    // hay nada que adivinar.
+    expect(partesDeFecha("29/05/2008")).toEqual({ anio: 2008, mes: 5, dia: 29 });
+    expect(partesDeFecha("01/06/2008")).toEqual({ anio: 2008, mes: 6, dia: 1 });
+  });
+
+  it("acepta el 29 de febrero porque 2008 si fue bisiesto", () => {
+    expect(partesDeFecha("2008-02-29")).toEqual({ anio: 2008, mes: 2, dia: 29 });
+  });
+
+  it("devuelve null en vez de adivinar cuando el texto no se entiende", () => {
+    expect(partesDeFecha("no-es-una-fecha")).toBeNull();
+    expect(partesDeFecha("")).toBeNull();
+    expect(partesDeFecha("   ")).toBeNull();
+    expect(partesDeFecha(null)).toBeNull();
+    expect(partesDeFecha(undefined)).toBeNull();
+  });
+});
+
+describe("calendarioEcuador", () => {
+  /** 2026-03-01T05:00:00Z son las 00:00 del 1 de marzo en Ecuador. */
+  const MEDIANOCHE_ECUADOR = Date.parse("2026-03-01T05:00:00.000Z");
+
+  it("se queda en el mismo dia mientras Ecuador aun no ha cambiado de dia", () => {
+    // 2026-03-01T04:59:59Z todavia son las 23:59:59 del 28 en Ecuador.
+    expect(calendarioEcuador(Date.parse("2026-03-01T04:59:59.000Z"))).toEqual({
+      anio: 2026,
+      mes: 2,
+      dia: 28,
+    });
+  });
+
+  it("cambia de dia en cuanto Ecuador pasa la medianoche", () => {
+    expect(calendarioEcuador(MEDIANOCHE_ECUADOR)).toEqual({
+      anio: 2026,
+      mes: 3,
+      dia: 1,
+    });
+  });
+
+  it("va cinco horas atras, no cinco adelante", () => {
+    // Un error clasico seria restar en vez de sumar al offset.
+    expect(calendarioEcuador(Date.parse("2026-03-01T00:30:00.000Z"))).toEqual({
+      anio: 2026,
+      mes: 2,
+      dia: 28,
+    });
+  });
+
+  it("da el mismo resultado que la hora de Quito, en cualquier dia del año", () => {
+    for (const dia of [1, 60, 200, 320]) {
+      const instante = Date.parse("2026-01-01T00:00:00.000Z") + dia * 86400000;
+      // en-CA formatea como 2026-03-01, que se separa sin adivinar el orden.
+      const esperado = new Date(instante)
+        .toLocaleString("en-CA", {
+          timeZone: "America/Guayaquil",
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+        })
+        .split("-")
+        .map(Number);
+      expect(calendarioEcuador(instante)).toEqual({
+        anio: esperado[0],
+        mes: esperado[1],
+        dia: esperado[2],
+      });
+    }
   });
 });

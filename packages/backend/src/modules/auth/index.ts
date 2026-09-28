@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { partesDeFecha, calendarioEcuador } from "../../lib/fechas";
 import type { Context } from "hono";
 import { sign, verify } from "@tsndr/cloudflare-worker-jwt";
 import type { AppEnv } from "../../index";
@@ -106,14 +107,59 @@ function nowEpoch(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-function calcularEdad(fechaNacimiento: string): number {
-  const hoy = new Date();
-  const nacimiento = new Date(fechaNacimiento);
-  let edad = hoy.getFullYear() - nacimiento.getFullYear();
-  const mes = hoy.getMonth() - nacimiento.getMonth();
-  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+/**
+ * Cuántos años tiene alguien, en el calendario de Ecuador.
+ *
+ * Antes se hacía con `getFullYear()`, `getMonth()` y `getDate()` sobre un
+ * `new Date(fechaNacimiento)`. Eso tenía dos problemas encadenados:
+ *
+ * - Un texto de solo fecha, como "2008-01-01", es medianoche **UTC**. Los
+ *   getters, en cambio, leen la **hora local del runtime**. Con el runtime en
+ *   UTC el día salía bien, pero en Ecuador la medianoche UTC ya era la tarde
+ *   del día anterior, y el nacimiento se leía corrido un día.
+ * - `hoy` sí era un instante, pero sus getters también son de hora local. Con
+ *   runtime UTC, el calendario que ve el backend va cinco horas adelantado al
+ *   de Ecuador, así que entre las 19:00 y la medianoche de Ecuador el sistema
+ *   ya creía que había cambiado el día.
+ *
+ * El resultado no era un problema de pruebas locales: en producción, quien
+ * cumple años entre las 19:00 y la medianoche de Ecuador veía reconocido su
+ * estatus de adulto hasta cinco horas antes, y eso abre la puerta al
+ * consentimiento publicitario de un menor.
+ *
+ * Ahora se leen el año, el mes y el día del texto, y se comparan contra el día
+ * de hoy en Ecuador. El resultado no depende de dónde corra el código.
+ *
+ * Devuelve `null` cuando la fecha no se puede leer. Quien llama tiene que
+ * mirar ese `null` explícitamente: en una puerta que protege a un menor,
+ * dejar pasar lo que no se entiende sería justo el error que se quiere evitar.
+ */
+function calcularEdad(
+  fechaNacimiento: string,
+  hoy: number = Date.now()
+): number | null {
+  const nacimiento = partesDeFecha(fechaNacimiento);
+  if (nacimiento === null) return null;
+
+  const hoyEcuador = calendarioEcuador(hoy);
+
+  let edad = hoyEcuador.anio - nacimiento.anio;
+  const yaCumplioEsteAnio =
+    hoyEcuador.mes > nacimiento.mes ||
+    (hoyEcuador.mes === nacimiento.mes && hoyEcuador.dia >= nacimiento.dia);
+
+  // Un 29 de febrero solo existe en años bisiestos. En los que no, se cumple
+  // años el 28 de febrero, que es lo que la ley y la costumbre usan.
+  const cumpleHoy =
+    hoyEcuador.mes === 2 &&
+    hoyEcuador.dia === 28 &&
+    nacimiento.mes === 2 &&
+    nacimiento.dia === 29;
+
+  if (!yaCumplioEsteAnio && !cumpleHoy) {
     edad--;
   }
+
   return edad;
 }
 
@@ -175,6 +221,16 @@ auth.post("/registro", async (c) => {
       );
     }
     const edad = calcularEdad(body.fecha_nacimiento);
+    // Un null es una fecha que no se entiende, no una edad. Antes `null < 18`
+    // daba falso y la peticion pasaba de largo; ahora se rechaza explicita.
+    if (edad === null) {
+      return c.json(
+        {
+          error: "La fecha de nacimiento no es valida",
+        },
+        422
+      );
+    }
     if (edad < 18) {
       return c.json(
         {
@@ -361,6 +417,16 @@ auth.patch("/consentimiento", async (c) => {
       );
     }
     const edad = calcularEdad(user.fecha_nacimiento);
+    // Igual que en el registro: una fecha ilegible no se interpreta como
+    // "no es menor". Se rechaza.
+    if (edad === null) {
+      return c.json(
+        {
+          error: "La fecha de nacimiento no es valida",
+        },
+        422
+      );
+    }
     if (edad < 18) {
       return c.json(
         {
