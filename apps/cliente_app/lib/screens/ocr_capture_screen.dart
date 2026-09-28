@@ -5,16 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/ocr_service.dart';
+import '../services/permiso_camara_service.dart';
+import '../widgets/aviso_permiso_camara.dart';
 import 'ocr_confirm_screen.dart';
 
 class OcrCaptureScreen extends StatefulWidget {
   final int comercioId;
   final String comercioNombre;
 
+  /// Fuerza la disponibilidad de la cámara en vez de autodetectarla. Solo se
+  /// usa en pruebas, donde `dart:io Platform` no es Android ni iOS.
+  final bool? soportaCamara;
+
   const OcrCaptureScreen({
     super.key,
     required this.comercioId,
     required this.comercioNombre,
+    this.soportaCamara,
   });
 
   @override
@@ -26,6 +33,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
   final _imagePicker = ImagePicker();
   bool _procesando = false;
   String? _error;
+  EstadoPermisoCamara? _estadoPermiso;
 
   @override
   void dispose() {
@@ -34,6 +42,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
   }
 
   bool _soportaCamara() {
+    if (widget.soportaCamara != null) return widget.soportaCamara!;
     if (kIsWeb) return false;
     try {
       return Platform.isAndroid || Platform.isIOS;
@@ -43,6 +52,15 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
   }
 
   Future<void> _capturarFoto(ImageSource source) async {
+    final estado = await revisarPermisoParaCaptura(
+      requiereCamara: source == ImageSource.camera,
+    );
+    if (estado != EstadoPermisoCamara.concedido) {
+      if (!mounted) return;
+      setState(() => _estadoPermiso = estado);
+      return;
+    }
+
     try {
       final xFile = await _imagePicker.pickImage(
         source: source,
@@ -91,30 +109,46 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final permisoBloqueado = _estadoPermiso != null &&
+        _estadoPermiso != EstadoPermisoCamara.concedido;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Escanear ticket'),
+        actions: [
+          if (permisoBloqueado)
+            IconButton(
+              tooltip: 'Cerrar aviso de permiso',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => _estadoPermiso = null),
+            ),
+        ],
       ),
-      body: _procesando
-          ? const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 24),
-                  Text(
-                    'Procesando imagen...',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Extrayendo datos del ticket',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                ],
-              ),
+      body: permisoBloqueado
+          ? AvisoPermisoCamara(
+              estado: _estadoPermiso!,
+              onReintentar: () => setState(() => _estadoPermiso = null),
             )
-          : _buildOpciones(),
+          : _procesando
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 24),
+                      Text(
+                        'Procesando imagen...',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Extrayendo datos del ticket',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                )
+              : _buildOpciones(),
     );
   }
 

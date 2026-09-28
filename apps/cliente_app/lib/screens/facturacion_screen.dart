@@ -4,11 +4,12 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
+import '../services/permiso_camara_service.dart';
+import '../widgets/aviso_permiso_camara.dart';
 import 'nivel3_capture_screen.dart';
 import 'ocr_capture_screen.dart';
 import 'ocr_confirm_screen.dart';
@@ -529,14 +530,12 @@ class _QrScannerScreen extends StatefulWidget {
   State<_QrScannerScreen> createState() => _QrScannerScreenState();
 }
 
-enum _EstadoPermisoCamara { comprobando, concedido, denegado, denegadoPermanente }
-
 class _QrScannerScreenState extends State<_QrScannerScreen> {
   final MobileScannerController _controller = MobileScannerController();
   String? _ultimoCodigoProcesado;
   Timer? _debounce;
   bool _resolvidoValido = false;
-  _EstadoPermisoCamara _estadoPermiso = _EstadoPermisoCamara.comprobando;
+  EstadoPermisoCamara _estadoPermiso = EstadoPermisoCamara.concediendo;
 
   @override
   void initState() {
@@ -552,77 +551,9 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   }
 
   Future<void> _verificarPermisoCamara() async {
-    var status = await Permission.camera.status;
-    if (status.isDenied) {
-      status = await Permission.camera.request();
-    }
+    final estado = await solicitarPermisoCamara();
     if (!mounted) return;
-    setState(() {
-      if (status.isGranted) {
-        _estadoPermiso = _EstadoPermisoCamara.concedido;
-      } else if (status.isPermanentlyDenied) {
-        _estadoPermiso = _EstadoPermisoCamara.denegadoPermanente;
-      } else {
-        _estadoPermiso = _EstadoPermisoCamara.denegado;
-      }
-    });
-  }
-
-  Future<void> _abrirConfiguracion() async {
-    await openAppSettings();
-  }
-
-  Widget _buildAvisoPermiso() {
-    final esPermanente =
-        _estadoPermiso == _EstadoPermisoCamara.denegadoPermanente;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.no_photography, size: 56, color: Colors.grey[500]),
-            const SizedBox(height: 12),
-            const Text(
-              'Permiso de cámara requerido',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              esPermanente
-                  ? 'El permiso de cámara fue denegado permanentemente. '
-                      'Habilítelo desde la configuración del dispositivo.'
-                  : 'Sin acceso a la cámara no es posible escanear el código QR.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Volver'),
-                ),
-                if (esPermanente) ...[
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _abrirConfiguracion,
-                    child: const Text('Abrir configuración'),
-                  ),
-                ] else ...[
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _verificarPermisoCamara,
-                    child: const Text('Reintentar'),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+    setState(() => _estadoPermiso = estado);
   }
 
   void _onDetect(BarcodeCapture captura) {
@@ -667,12 +598,17 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Escanear QR')),
       body: switch (_estadoPermiso) {
-        _EstadoPermisoCamara.comprobando =>
+        EstadoPermisoCamara.concediendo =>
           const Center(child: CircularProgressIndicator()),
-        _EstadoPermisoCamara.denegado ||
-        _EstadoPermisoCamara.denegadoPermanente =>
-          _buildAvisoPermiso(),
-        _EstadoPermisoCamara.concedido => MobileScanner(
+        EstadoPermisoCamara.denegado ||
+        EstadoPermisoCamara.denegadoPermanente =>
+          AvisoPermisoCamara(
+            estado: _estadoPermiso,
+            onReintentar: _verificarPermisoCamara,
+            onCerrar: () => Navigator.of(context).pop(),
+            mensaje: 'Sin acceso a la cámara no es posible escanear el código QR.',
+          ),
+        EstadoPermisoCamara.concedido => MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
           ),

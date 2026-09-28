@@ -8,16 +8,27 @@ import 'package:image_picker/image_picker.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
+import '../services/permiso_camara_service.dart';
+import '../widgets/aviso_permiso_camara.dart';
 import '../services/ocr_service.dart';
 
 class Nivel3CaptureScreen extends StatefulWidget {
   final int comercioId;
   final String comercioNombre;
+  final FacturasService? facturasService;
+  final AuthService? auth;
+
+  /// Fuerza la disponibilidad de la cámara en vez de autodetectarla. Solo se
+  /// usa en pruebas, donde `dart:io Platform` no es Android ni iOS.
+  final bool? soportaCamara;
 
   const Nivel3CaptureScreen({
     super.key,
     required this.comercioId,
     required this.comercioNombre,
+    this.facturasService,
+    this.auth,
+    this.soportaCamara,
   });
 
   @override
@@ -27,8 +38,8 @@ class Nivel3CaptureScreen extends StatefulWidget {
 enum _Estado { solicitando, capturando, procesando, resultado, error }
 
 class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
-  final _facturasService = FacturasService();
-  final _authService = AuthService();
+  late final FacturasService _facturasService;
+  late final AuthService _authService;
   final _ocrService = OcrService();
   final _imagePicker = ImagePicker();
 
@@ -37,11 +48,14 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
   OcrResult? _ocrResult;
   RegistroResult? _resultado;
   String? _error;
+  EstadoPermisoCamara? _estadoPermiso;
   int _segundosRestantes = 300;
 
   @override
   void initState() {
     super.initState();
+    _facturasService = widget.facturasService ?? FacturasService();
+    _authService = widget.auth ?? AuthService();
     _solicitarDesafio();
   }
 
@@ -96,6 +110,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
   }
 
   bool _soportaCamara() {
+    if (widget.soportaCamara != null) return widget.soportaCamara!;
     if (kIsWeb) return false;
     try {
       return Platform.isAndroid || Platform.isIOS;
@@ -111,6 +126,13 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
   }
 
   Future<void> _capturarFoto() async {
+    final estado = await revisarPermisoParaCaptura(requiereCamara: true);
+    if (estado != EstadoPermisoCamara.concedido) {
+      if (!mounted) return;
+      setState(() => _estadoPermiso = estado);
+      return;
+    }
+
     try {
       final xFile = await _imagePicker.pickImage(
         source: ImageSource.camera,
@@ -183,11 +205,27 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final permisoBloqueado = _estadoPermiso != null &&
+        _estadoPermiso != EstadoPermisoCamara.concedido;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sin comprobante'),
+        actions: [
+          if (permisoBloqueado)
+            IconButton(
+              tooltip: 'Cerrar aviso de permiso',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => _estadoPermiso = null),
+            ),
+        ],
       ),
-      body: _buildBody(),
+      body: permisoBloqueado
+          ? AvisoPermisoCamara(
+              estado: _estadoPermiso!,
+              onReintentar: () => setState(() => _estadoPermiso = null),
+            )
+          : _buildBody(),
     );
   }
 

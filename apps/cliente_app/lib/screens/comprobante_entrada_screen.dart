@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../services/permiso_camara_service.dart';
+import '../widgets/aviso_permiso_camara.dart';
 
 class ComprobanteEntradaScreen extends StatefulWidget {
   final int entradaId;
@@ -16,12 +18,17 @@ class ComprobanteEntradaScreen extends StatefulWidget {
   final AuthService? auth;
   final Future<Uint8List?> Function(ImageSource source)? picker;
 
+  /// Fuerza la disponibilidad de la cámara en vez de autodetectarla. Solo se
+  /// usa en pruebas, donde `dart:io Platform` no es Android ni iOS.
+  final bool? soportaCamara;
+
   const ComprobanteEntradaScreen({
     super.key,
     required this.entradaId,
     this.servicio,
     this.auth,
     this.picker,
+    this.soportaCamara,
   });
 
   @override
@@ -34,6 +41,7 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
   late final AuthService _auth;
   Uint8List? _imagen;
   bool _enviando = false;
+  EstadoPermisoCamara? _estadoPermiso;
   String? _error;
   String? _exito;
 
@@ -45,6 +53,7 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
   }
 
   bool _soportaCamara() {
+    if (widget.soportaCamara != null) return widget.soportaCamara!;
     if (kIsWeb) return false;
     try {
       return Platform.isAndroid || Platform.isIOS;
@@ -54,6 +63,15 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
   }
 
   Future<void> _seleccionarImagen(ImageSource source) async {
+    final estado = await revisarPermisoParaCaptura(
+      requiereCamara: source == ImageSource.camera,
+    );
+    if (estado != EstadoPermisoCamara.concedido) {
+      if (!mounted) return;
+      setState(() => _estadoPermiso = estado);
+      return;
+    }
+
     try {
       final bytes = widget.picker == null
           ? await _capturarConImagePicker(source)
@@ -121,9 +139,27 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final permisoBloqueado = _estadoPermiso != null &&
+        _estadoPermiso != EstadoPermisoCamara.concedido;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Subir comprobante')),
-      body: SingleChildScrollView(
+      appBar: AppBar(
+        title: const Text('Subir comprobante'),
+        actions: [
+          if (permisoBloqueado)
+            IconButton(
+              tooltip: 'Cerrar aviso de permiso',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => _estadoPermiso = null),
+            ),
+        ],
+      ),
+      body: permisoBloqueado
+          ? AvisoPermisoCamara(
+              estado: _estadoPermiso!,
+              onReintentar: () => setState(() => _estadoPermiso = null),
+            )
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
