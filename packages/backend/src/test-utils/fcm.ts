@@ -13,10 +13,12 @@ export type CredencialesFcm = {
 };
 
 /**
- * Genera un par de claves RSA válido para que `enviarNotificacion` pueda firmar
- * de verdad el JWT de OAuth2. No se usan secretos reales.
+ * Genera una clave privada RSA de prueba y devuelve su cuerpo en base64, ya
+ * partido en líneas de 64 caracteres como manda el formato PEM. Se separa de
+ * las credenciales para poder probar los distintos formatos en que la clave
+ * puede llegar guardada. Nunca se usan secretos reales.
  */
-export async function generarCredencialesFcmDePrueba(): Promise<CredencialesFcm> {
+export async function generarClavePrivadaBase64DePrueba(): Promise<string[]> {
   const par = (await crypto.subtle.generateKey(
     {
       name: "RSASSA-PKCS1-v1_5",
@@ -36,7 +38,15 @@ export async function generarCredencialesFcmDePrueba(): Promise<CredencialesFcm>
     binario += String.fromCharCode(byte);
   }
   const base64 = btoa(binario);
-  const lineas = base64.match(/.{1,64}/g) ?? [];
+  return base64.match(/.{1,64}/g) ?? [];
+}
+
+/**
+ * Genera un par de claves RSA válido para que `enviarNotificacion` pueda firmar
+ * de verdad el JWT de OAuth2. No se usan secretos reales.
+ */
+export async function generarCredencialesFcmDePrueba(): Promise<CredencialesFcm> {
+  const lineas = await generarClavePrivadaBase64DePrueba();
 
   return {
     FCM_CLIENT_EMAIL:

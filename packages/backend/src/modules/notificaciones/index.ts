@@ -42,12 +42,48 @@ function base64UrlEncode(data: Uint8Array | ArrayBuffer): string {
     .replace(/=+$/, "");
 }
 
+/**
+ * Convierte una clave privada PEM a DER para poder importarla.
+ *
+ * La clave se pega en Cloudflare de varias formas y no siempre llega como la
+ * que se espera: puede traer los saltos de linea reales, la secuencia de dos
+ * caracteres "\n" si se copio desde un archivo JSON, comillas envolventes,
+ * finales "\r\n" o espacios sobrantes. Todo eso se limpia antes de decodificar
+ * para que el mismo valor funcione en cualquier caso.
+ */
 function pemToDer(pem: string): ArrayBuffer {
-  const cleaned = pem
+  // 1. Si viene con barras invertidas literales (copiado de un JSON), se
+  //    convierten en saltos de linea reales antes de limpiar.
+  const conSaltosReales = pem.replace(/\\r\\n|\\n|\\r/g, "\n");
+
+  // 2. Se quitan comillas envolventes que a veces deja el pegado.
+  const sinComillas = conSaltosReales.replace(/^["']+|["']+$/g, "");
+
+  // 3. Se elimina la cabecera y el pie del PEM, y todo espacio en blanco
+  //    (saltos de linea, CR, tabuladores y espacios) que se haya colado.
+  const cuerpo = sinComillas
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----/g, "")
+    .replace(/-----END [A-Z ]*PRIVATE KEY-----/g, "")
     .replace(/-----BEGIN [A-Z ]*KEY-----/g, "")
     .replace(/-----END [A-Z ]*KEY-----/g, "")
     .replace(/\s+/g, "");
-  const binary = atob(cleaned);
+
+  if (cuerpo.length === 0) {
+    throw new Error(
+      "FCM_PRIVATE_KEY está vacía o no contiene una clave privada"
+    );
+  }
+
+  let binary: string;
+  try {
+    binary = atob(cuerpo);
+  } catch {
+    // Un mensaje que diga que hacer, en vez del error interno de atob.
+    throw new Error(
+      "FCM_PRIVATE_KEY no es una clave privada PEM válida: revisa que se haya guardado completa, con sus líneas BEGIN y END, y sin caracteres raros"
+    );
+  }
+
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
@@ -66,13 +102,26 @@ async function firmaJwt(
     "." +
     base64UrlEncode(encoder.encode(JSON.stringify(claims)));
 
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToDer(privateKeyPem),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey(
+      "pkcs8",
+      pemToDer(privateKeyPem),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+  } catch (error) {
+    // "Invalid PKCS8 input" no le dice nada a quien Guarda el secreto. Se
+    // cambia por un mensaje que diga qué variable revisar y cómo se pega.
+    if (error instanceof Error && /FCM_PRIVATE_KEY/.test(error.message)) {
+      throw error;
+    }
+    throw new Error(
+      "FCM_PRIVATE_KEY no es una clave privada PEM válida: revisa que se haya guardado completa, con sus líneas BEGIN y END, y sin caracteres raros",
+      { cause: error }
+    );
+  }
 
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
