@@ -97,7 +97,7 @@ describe("PUT /auth/fcm-token", () => {
 });
 
 describe("POST /notificaciones/test", () => {
-  it("devuelve ok false cuando el usuario no tiene token FCM registrado", async () => {
+  it("responde 400 con un mensaje claro cuando el usuario no tiene token FCM", async () => {
     const app = buildApp();
     const token = await makeToken(1, "cliente");
 
@@ -108,9 +108,12 @@ describe("POST /notificaciones/test", () => {
       { method: "POST", headers: { Authorization: `Bearer ${token}` } },
       { DB: db, JWT_SECRET, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY }
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean };
-    expect(body.ok).toBe(false);
+
+    // 400 y no 200 con ok:false: la app tomaba el 200 como un envio exitoso.
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("notificaciones");
   });
 });
 

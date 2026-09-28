@@ -239,11 +239,17 @@ notificaciones.post(
       .bind(userId)
       .first<{ fcm_token: string | null }>();
 
+    // Antes esto devolvia 200 con ok:false, y la app lo tomaba como un envio
+    // exitoso. Sin token no hay nada que enviar, asi que es un error del
+    // cliente: se responde 400 con un mensaje que dice que hacer.
     if (!usuario?.fcm_token) {
-      return c.json({
-        ok: false,
-        error: "El usuario no tiene un token de notificaciones registrado",
-      });
+      return c.json(
+        {
+          error:
+            "Tu dispositivo no está registrado para recibir notificaciones. Abre la app de nuevo para volver a registrarlo.",
+        },
+        400
+      );
     }
 
     await enviarNotificacion(

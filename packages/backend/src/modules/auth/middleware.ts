@@ -28,7 +28,16 @@ export async function authMiddleware(
 
   const token = header.slice(7);
   const secret = c.env.JWT_SECRET;
-  const decoded = await verify(token, secret);
+
+  // verify() lanza si el token esta mal formado (no solo si la firma no
+  // cuadra). Un token basura es lo mismo que un token invalido, asi que se
+  // responde 401 en vez de dejar que reviente la peticion con un 500.
+  let decoded: Awaited<ReturnType<typeof verify>> | null | undefined;
+  try {
+    decoded = await verify(token, secret);
+  } catch {
+    decoded = null;
+  }
 
   if (!decoded) {
     return c.json({ error: "Token inválido o expirado" }, 401);
