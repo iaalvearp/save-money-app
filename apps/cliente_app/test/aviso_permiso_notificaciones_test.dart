@@ -75,9 +75,9 @@ void main() {
       expect(find.text('Activar notificaciones'), findsOneWidget);
     });
 
-    testWidgets('si ya se respondió antes, el aviso no reaparece', (tester) async {
+    testWidgets('si el aviso ya está cerrado, no reaparece', (tester) async {
       SharedPreferences.setMockInitialValues({
-        NotificacionesService.claveAvisoMostrado: true,
+        NotificacionesService.claveAvisoCerrado: true,
       });
       final registro = Registro();
 
@@ -121,7 +121,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool(NotificacionesService.claveAvisoMostrado), isTrue);
+      expect(prefs.getBool(NotificacionesService.claveAvisoCerrado), isTrue);
     });
 
     testWidgets('el token se registra despues de la decision, nunca antes',
@@ -172,14 +172,29 @@ void main() {
       expect(find.text('Activar notificaciones'), findsNothing);
     });
 
-    testWidgets('si solo lo denego, el sistema puede volver a preguntar y se insiste',
+    testWidgets(
+        'tras un rechazo simple del sistema se insiste, sin partir de preferencias limpias',
         (tester) async {
-      SharedPreferences.setMockInitialValues({});
+      // Arranque real: el permiso empieza sin decidir y el aviso se muestra.
       final registro = Registro();
-
-      await montar(tester, servicio(registro, AuthorizationStatus.denied));
-
+      await montar(
+        tester,
+        servicio(
+          registro,
+          AuthorizationStatus.notDetermined,
+          trasSolicitar: AuthorizationStatus.denied,
+        ),
+      );
       expect(find.text('Activar notificaciones'), findsOneWidget);
+
+      // El usuario acepta y el sistema lo rechaza de forma simple.
+      await tester.tap(find.text('Activar'));
+      await tester.pumpAndSettle();
+
+      // El aviso no se da por cerrado, asi que todavia puede volver.
+      final notis = servicio(registro, AuthorizationStatus.denied);
+      expect(await notis.avisoCerrado(), isFalse);
+      expect(await notis.debeMostrarAviso(), isTrue);
     });
 
     testWidgets('el token se registra igual aunque no haya aviso', (tester) async {

@@ -54,6 +54,11 @@ class _AvisoPermisoNotificacionesState extends State<AvisoPermisoNotificaciones>
   }
 
   Future<void> _preguntar() async {
+    // Se cuenta antes de mostrar: si el widget se destruye con el diálogo
+    // abierto, el aviso llegó a verse y debe contar igual.
+    await _servicio.registrarAvisoMostrado();
+    if (!mounted) return;
+
     final activar = await showDialog<bool>(
       context: context,
       // Sin "cerrar tocando fuera": siempre tiene que haber una decisión, o el
@@ -77,12 +82,19 @@ class _AvisoPermisoNotificacionesState extends State<AvisoPermisoNotificaciones>
 
     if (!mounted) return;
 
-    // Se recuerda la respuesta tanto si aceptó como si no: el sistema ya
-    // guardó su decisión, y repetir el aviso no aporta nada.
-    await _servicio.registrarDecisionAviso();
+    if (activar != true) {
+      // "Ahora no" es una decisión definitiva: no se vuelve a preguntar.
+      await _servicio.cerrarAviso();
+      return;
+    }
 
-    if (activar == true) {
-      await _servicio.solicitarPermiso();
+    // Aceptar no cierra nada por sí solo: manda el estado real que devolvió el
+    // sistema. Si el usuario luego rechaza su diálogo, el aviso podrá volver a
+    // mostrarse en un arranque posterior, hasta el tope de seguridad.
+    final resultado = await _servicio.solicitarPermiso();
+    if (resultado == EstadoPermisoNotificaciones.concedido ||
+        resultado == EstadoPermisoNotificaciones.denegadoPermanente) {
+      await _servicio.cerrarAviso();
     }
   }
 
