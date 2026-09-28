@@ -19,6 +19,43 @@ class MyApp extends StatelessWidget {
 
   const MyApp({super.key, required this.themeService});
 
+  /// Radio de las esquinas de los botones y del botón flotante.
+  static const double radioBoton = 8;
+
+  /// El tema claro y el oscuro salen de acá para que no se separen.
+  static ThemeData _tema(Brightness brillo) {
+    final colores = ColorScheme.fromSeed(
+      seedColor: Colors.deepPurple,
+      brightness: brillo,
+    );
+    final forma = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radioBoton),
+    );
+
+    return ThemeData(
+      colorScheme: colores,
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(shape: forma),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: forma),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: forma),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: forma),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        shape: forma,
+      ),
+    );
+  }
+
+  /// El tema tal como lo arma la app, expuesto para las pruebas.
+  @visibleForTesting
+  static ThemeData temaDePruebas(Brightness brillo) => _tema(brillo);
+
   @override
   Widget build(BuildContext context) {
     return ThemeScope(
@@ -28,15 +65,8 @@ class MyApp extends StatelessWidget {
         builder: (context, _) {
           return MaterialApp(
             title: 'Save Money',
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-            ),
-            darkTheme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: Colors.deepPurple,
-                brightness: Brightness.dark,
-              ),
-            ),
+            theme: _tema(Brightness.light),
+            darkTheme: _tema(Brightness.dark),
             themeMode: themeService.modo,
             home: const SessionGate(),
           );

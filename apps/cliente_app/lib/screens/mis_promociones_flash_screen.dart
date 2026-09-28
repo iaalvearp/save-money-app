@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
 import '../services/flash_service.dart';
+import '../widgets/icono_cuadrado.dart';
 import 'crear_promocion_flash_screen.dart';
 
 class MisPromocionesFlashScreen extends StatefulWidget {
@@ -261,8 +262,8 @@ class _MisPromocionesFlashScreenState extends State<MisPromocionesFlashScreen> {
   Widget _buildPromoTile(PromocionFlash promo) {
     final activa = promo.estaActiva;
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: activa ? Colors.green : Colors.grey,
+      leading: IconoCuadrado(
+        color: activa ? Colors.green : Colors.grey,
         child: Text('${promo.descuentoPorcentaje.round()}%'),
       ),
       title: Text(promo.titulo),

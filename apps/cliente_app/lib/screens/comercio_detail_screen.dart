@@ -362,6 +362,10 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
                   label: const Text('Cómo llegar'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               )

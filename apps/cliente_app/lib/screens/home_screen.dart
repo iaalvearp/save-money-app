@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import '../services/comercios_service.dart';
 import '../services/notificaciones_service.dart';
 import '../widgets/dialogo_error.dart';
+import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
@@ -548,14 +549,10 @@ class _ComercioTile extends StatelessWidget {
   }
 
   Widget _buildAvatar() {
-    if (comercio.fotoUrl != null && comercio.fotoUrl!.isNotEmpty) {
-      return CircleAvatar(
-        backgroundImage: NetworkImage(comercio.fotoUrl!),
-        onBackgroundImageError: (_, _) {},
-        child: Text(comercio.nombre[0].toUpperCase()),
-      );
-    }
-    return CircleAvatar(child: Text(comercio.nombre[0].toUpperCase()));
+    return IconoCuadrado(
+      imagen: comercio.fotoUrl,
+      child: Text(comercio.nombre[0].toUpperCase()),
+    );
   }
 }
 

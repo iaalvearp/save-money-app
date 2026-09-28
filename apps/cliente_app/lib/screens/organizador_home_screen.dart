@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
 import 'crear_evento_screen.dart';
 import 'evento_detalle_screen.dart';
@@ -162,7 +163,7 @@ class _OrganizadorHomeScreenState extends State<OrganizadorHomeScreen> {
         itemBuilder: (context, index) {
           final evento = _eventos[index];
           return ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.event)),
+            leading: const IconoCuadrado(child: Icon(Icons.event)),
             title: Text(evento.nombre),
             subtitle: Text(
               '${evento.fechaInicio.split(' ').first} - '

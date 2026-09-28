@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/comercios_service.dart';
+import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
 import 'canjear_cupon_screen.dart';
 import 'mi_comercio_form_screen.dart';
@@ -164,8 +165,9 @@ class _NegocioHomeScreenState extends State<NegocioHomeScreen> {
           const Divider(height: 1),
           for (final comercio in _comercios)
             ListTile(
-              leading:
-                  CircleAvatar(child: Text(comercio.nombre[0].toUpperCase())),
+              leading: IconoCuadrado(
+                child: Text(comercio.nombre[0].toUpperCase()),
+              ),
               title: Text(comercio.nombre),
               subtitle: Text(
                 comercio.categoria ?? 'Sin categoría',
