@@ -6,6 +6,7 @@ import {
   instanteEnVentana,
   instanteEnTextoUtc,
   ahoraEnUtc,
+  traeHora,
 } from "../fechas";
 
 /** Ecuador: el mediodia son las 17:00 UTC, porque va cinco horas atras. */
@@ -236,5 +237,27 @@ describe("instanteEnTextoUtc", () => {
 
   it("ahoraEnUtc devuelve un texto con ese mismo formato", () => {
     expect(ahoraEnUtc()).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+});
+
+describe("traeHora", () => {
+  it("dice que si cuando la fecha dice la hora", () => {
+    expect(traeHora("2026-03-01T10:00:00-05:00")).toBe(true);
+    expect(traeHora("2026-03-01 10:00:00")).toBe(true);
+    expect(traeHora("2026-03-01T15:00:00Z")).toBe(true);
+  });
+
+  it("dice que no cuando la fecha solo dice el dia", () => {
+    expect(traeHora("2026-03-01")).toBe(false);
+    expect(traeHora("01/03/2026")).toBe(false);
+    expect(traeHora("1-3-26")).toBe(false);
+  });
+
+  it("dice que no cuando no hay fecha", () => {
+    expect(traeHora(null)).toBe(false);
+    expect(traeHora(undefined)).toBe(false);
+    expect(traeHora("")).toBe(false);
+    expect(traeHora("   ")).toBe(false);
+    expect(traeHora("no es fecha")).toBe(false);
   });
 });

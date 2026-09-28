@@ -241,3 +241,22 @@ export function instanteEnVentana(
   if (instante === null || inicio === null || fin === null) return false;
   return instante >= inicio && instante <= fin;
 }
+
+/**
+ * Si la fecha dice la hora, ademas del dia.
+ *
+ * Importa porque las dos cosas se comparan de forma distinta: una fecha con
+ * hora es un instante y se compara contra la ventana exacta del evento; una
+ * fecha que solo dice el dia se compara contra los dias del evento. Una compra
+ * del mismo dia que abre el evento es valida si solo sabemos el dia, pero
+ * puede no serlo si tambien sabemos a que hora fue.
+ *
+ * Devuelve false para lo que no es ni una cosa ni la otra, como "no es fecha",
+ * que no se puede comparar con nada.
+ */
+export function traeHora(valor: string | null | undefined): boolean {
+  if (typeof valor !== "string") return false;
+  const texto = valor.trim();
+  if (texto === "") return false;
+  return ISO_CON_ZONA.test(texto) || FECHA_HORA_SIN_ZONA.test(texto);
+}
