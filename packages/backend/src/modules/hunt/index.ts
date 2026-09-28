@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
 import { emitirCupon } from "../cupones/index";
+import { contarComprasQueCuentan } from "./frecuencia";
 import { notificarAUsuarios } from "../notificaciones/index";
 import {
   ahoraEnUtc,
@@ -496,6 +497,62 @@ hunt.post(
   }
 );
 
+hunt.get(
+  "/eventos/:eventoId/premios/:premioId/progreso",
+  authMiddleware,
+  async (c) => {
+    const db = c.env.DB;
+    const user = c.get("user");
+    const eventoId = c.req.param("eventoId");
+    const premioId = c.req.param("premioId");
+
+    const premio = await db
+      .prepare(
+        "SELECT id, evento_id, ronda_id, nombre, tipo, criterio_frecuencia FROM premios WHERE id = ? AND evento_id = ?"
+      )
+      .bind(premioId, eventoId)
+      .first<{
+        id: number;
+        evento_id: number;
+        ronda_id: number | null;
+        nombre: string;
+        tipo: string;
+        criterio_frecuencia: number | null;
+      }>();
+
+    if (!premio) {
+      return c.json({ error: "Premio no encontrado" }, 404);
+    }
+
+    // Ver el progreso no exige tener entrada, ni estar dentro del horario del
+    // evento: es solo informacion. Lo que exige es que el premio se pueda
+    // contar, y si su ventana no se puede leer se dice, en vez de responder con
+    // un cero que haria pensar que no ha comprado nada.
+    const conteo = await contarComprasQueCuentan(db, user.sub, premio);
+
+    if (conteo.criterio === null) {
+      return c.json(
+        {
+          error:
+            "Este premio no tiene un criterio de frecuencia configurado, asi que no se puede calcular el progreso",
+        },
+        422
+      );
+    }
+
+    return c.json({
+      premio_id: premio.id,
+      nombre: premio.nombre,
+      compras: conteo.compras,
+      criterio: conteo.criterio,
+      faltan: Math.max(0, conteo.criterio - conteo.compras),
+      cumple: conteo.cumple,
+      ventana: conteo.ventana,
+      sin_fecha_legible: conteo.sin_fecha_legible,
+    });
+  }
+);
+
 hunt.post(
   "/eventos/:eventoId/premios/:premioId/entregar",
   authMiddleware,
@@ -589,12 +646,48 @@ hunt.post(
     }
 
     const premio = await db
-      .prepare("SELECT id, ronda_id, stock, nombre FROM premios WHERE id = ? AND evento_id = ?")
+      .prepare(
+        "SELECT id, evento_id, ronda_id, stock, nombre, tipo, criterio_frecuencia FROM premios WHERE id = ? AND evento_id = ?"
+      )
       .bind(premioId, eventoId)
-      .first<{ id: number; ronda_id: number | null; stock: number; nombre: string }>();
+      .first<{
+        id: number;
+        evento_id: number;
+        ronda_id: number | null;
+        stock: number;
+        nombre: string;
+        tipo: string;
+        criterio_frecuencia: number | null;
+      }>();
 
     if (!premio) {
       return c.json({ error: "Premio no encontrado" }, 404);
+    }
+
+    // Un premio por frecuencia no se gana por azar: hay que haber hecho las
+    // compras que pide, en un comercio patrocinador y dentro de la ventana.
+    let conteo = null;
+    if (premio.tipo === "frecuencia") {
+      conteo = await contarComprasQueCuentan(db, user.sub, premio);
+
+      if (conteo.criterio === null) {
+        return c.json(
+          { error: "Este premio no tiene un criterio de frecuencia configurado" },
+          422
+        );
+      }
+
+      if (!conteo.cumple) {
+        return c.json(
+          {
+            error: `Este premio se gana con ${conteo.criterio} compras y llevas ${conteo.compras}`,
+            compras: conteo.compras,
+            criterio: conteo.criterio,
+            faltan: conteo.criterio - conteo.compras,
+          },
+          422
+        );
+      }
     }
 
     const yaReclamado = await db
