@@ -28,6 +28,16 @@ function futureDate(days: number): string {
   return d.toISOString().replace("T", " ").slice(0, 19);
 }
 
+/** El mismo dia que futureDate, pero solo la parte de la fecha. */
+function futureDay(days: number): string {
+  return futureDate(days).slice(0, 10);
+}
+
+/** Un momento concreto del dia futuro indicado. */
+function futureMoment(days: number, hora: string): string {
+  return `${futureDay(days)} ${hora}`;
+}
+
 function pastDate(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -254,6 +264,34 @@ describe("POST /hunt/eventos/:id/rondas", () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           nombre: "Ronda 1",
+          hora_inicio: futureMoment(1, "10:00:00"),
+          hora_fin: futureMoment(1, "12:00:00"),
+        }),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(201);
+  });
+
+  it("rechaza una ronda con solo la hora, sin fecha", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Rondas", futureDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/rondas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nombre: "Ronda 1",
           hora_inicio: "10:00",
           hora_fin: "12:00",
         }),
@@ -261,7 +299,242 @@ describe("POST /hunt/eventos/:id/rondas", () => {
       { DB: db, JWT_SECRET }
     );
 
+    expect(res.status).toBe(400);
+    // El mensaje tiene que decir que formato se espera, si no el organizador
+    // no sabe que escribir.
+    const cuerpo = (await res.json()) as { error: string };
+    expect(cuerpo.error).toContain("AAAA-MM-DD HH:MM:SS");
+  });
+
+  it("acepta una ronda nocturna con fecha del dia siguiente", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Nocturno", futureDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/rondas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nombre: "Ronda de madrugada",
+          hora_inicio: futureMoment(1, "22:00:00"),
+          hora_fin: futureMoment(2, "02:00:00"),
+        }),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
     expect(res.status).toBe(201);
+  });
+
+  it("rechaza una ronda que termina antes de empezar", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Rondas", futureDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/rondas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nombre: "Ronda al reves",
+          hora_inicio: futureMoment(2, "12:00:00"),
+          hora_fin: futureMoment(1, "12:00:00"),
+        }),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(400);
+    const cuerpo = (await res.json()) as { error: string };
+    // El mensaje tiene que explicar como se escribe una ronda que cruza la
+    // medianoche, que es el caso que la gente se equivoca.
+    expect(cuerpo.error).toContain("medianoche");
+  });
+
+  it("rechaza una ronda que empieza y acaba en el mismo instante", async () => {
+    const app = buildApp();
+    const token = await makeToken(1, "organizador");
+
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(1, "Evento Rondas", futureDate(1), futureDate(3))
+      .run();
+    const eventoId = insertRes.meta.last_row_id;
+
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/rondas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nombre: "Ronda de un instante",
+          hora_inicio: futureMoment(1, "10:00:00"),
+          hora_fin: futureMoment(1, "10:00:00"),
+        }),
+      },
+      { DB: db, JWT_SECRET }
+    );
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("validacion de premios", () => {
+  async function crearEvento(organizadorId: number): Promise<number> {
+    const insertRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(organizadorId, "Evento Premios", futureDate(1), futureDate(3))
+      .run();
+    return insertRes.meta.last_row_id;
+  }
+
+  async function crearPremio(
+    token: string,
+    eventoId: number,
+    cuerpo: Record<string, unknown>
+  ) {
+    const app = buildApp();
+    return app.request(
+      `/hunt/eventos/${eventoId}/premios`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(cuerpo),
+      },
+      { DB: db, JWT_SECRET }
+    );
+  }
+
+  it("rechaza un premio de frecuencia sin umbral de compras", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Camiseta",
+      stock: 5,
+      tipo: "frecuencia",
+    });
+
+    // Sin numero de compras no se sabe cuando se gana, asi que no se crea.
+    expect(res.status).toBe(400);
+    const cuerpo = (await res.json()) as { error: string };
+    expect(cuerpo.error).toContain("criterio_frecuencia");
+  });
+
+  it("acepta un premio de frecuencia con umbral de compras", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Camiseta",
+      stock: 5,
+      tipo: "frecuencia",
+      criterio_frecuencia: 3,
+    });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("rechaza un umbral de compras que no sea un entero positivo", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    for (const criterio of [0, -2, 2.5]) {
+      const res = await crearPremio(token, eventoId, {
+        nombre: "Camiseta",
+        stock: 5,
+        tipo: "frecuencia",
+        criterio_frecuencia: criterio,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("no exige umbral de compras a los premios que no son de frecuencia", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Combo",
+      stock: 5,
+      tipo: "principal",
+    });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("rechaza una ronda de otro evento", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+    const otroEventoId = await crearEvento(1);
+
+    const rondaRes = await db
+      .prepare(`INSERT INTO rondas (evento_id, nombre, hora_inicio, hora_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(otroEventoId, "Ronda ajena", futureMoment(1, "10:00:00"), futureMoment(1, "12:00:00"))
+      .run();
+    const rondaId = rondaRes.meta.last_row_id;
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Premio con ronda ajena",
+      stock: 5,
+      tipo: "consolacion",
+      ronda_id: rondaId,
+    });
+
+    // El premio contaria con las horas de una ronda que no es suya.
+    expect(res.status).toBe(400);
+  });
+
+  it("acepta una ronda de su propio evento", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    const rondaRes = await db
+      .prepare(`INSERT INTO rondas (evento_id, nombre, hora_inicio, hora_fin)
+                VALUES (?, ?, ?, ?)`)
+      .bind(eventoId, "Ronda propia", futureMoment(1, "10:00:00"), futureMoment(1, "12:00:00"))
+      .run();
+    const rondaId = rondaRes.meta.last_row_id;
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Premio con ronda propia",
+      stock: 5,
+      tipo: "consolacion",
+      ronda_id: rondaId,
+    });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("rechaza un stock con decimales", async () => {
+    const token = await makeToken(1, "organizador");
+    const eventoId = await crearEvento(1);
+
+    const res = await crearPremio(token, eventoId, {
+      nombre: "Stock raro",
+      stock: 2.5,
+      tipo: "consolacion",
+    });
+
+    expect(res.status).toBe(400);
   });
 });
 

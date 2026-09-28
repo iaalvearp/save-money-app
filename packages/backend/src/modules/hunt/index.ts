@@ -4,6 +4,7 @@ import { emitirCupon } from "../cupones/index";
 import { notificarAUsuarios } from "../notificaciones/index";
 import {
   ahoraEnUtc,
+  esFechaLegible,
   instanteDeCompra,
   instanteEnTextoUtc,
   instanteEnVentana,
@@ -260,6 +261,28 @@ hunt.post(
       return c.json({ error: "Nombre, hora_inicio y hora_fin son requeridos" }, 400);
     }
 
+    // Una ronda con una hora suelta, como "22:00", no dice de que dia habla y no
+    // serviria para nada. Se pide fecha y hora completas.
+    if (!esFechaLegible(body.hora_inicio) || !esFechaLegible(body.hora_fin)) {
+      return c.json(
+        {
+          error:
+            "hora_inicio y hora_fin deben ser fecha y hora completas, en formato AAAA-MM-DD HH:MM:SS",
+        },
+        400
+      );
+    }
+
+    if (!ventanaBienOrdenada(body.hora_inicio, body.hora_fin)) {
+      return c.json(
+        {
+          error:
+            "La ronda debe terminar después de empezar; si cruza la medianoche, usa la fecha del día siguiente en la hora de fin",
+        },
+        400
+      );
+    }
+
     const result = await db
       .prepare(
         `INSERT INTO rondas (evento_id, nombre, hora_inicio, hora_fin)
@@ -414,6 +437,41 @@ hunt.post(
 
     if (!["principal", "consolacion", "frecuencia"].includes(body.tipo)) {
       return c.json({ error: "Tipo inválido. Debe ser: principal, consolacion, frecuencia" }, 400);
+    }
+
+    if (!Number.isInteger(body.stock)) {
+      return c.json({ error: "El stock debe ser un número entero" }, 400);
+    }
+
+    // La ronda decide las horas en las que el premio cuenta. Si la ronda es de
+    // otro evento, el premio quedaria con una ventana que no le corresponde.
+    if (body.ronda_id !== undefined && body.ronda_id !== null) {
+      const ronda = await db
+        .prepare("SELECT id FROM rondas WHERE id = ? AND evento_id = ?")
+        .bind(body.ronda_id, eventoId)
+        .first();
+
+      if (!ronda) {
+        return c.json({ error: "La ronda no pertenece a este evento" }, 400);
+      }
+    }
+
+    // Un premio de frecuencia sin umbral no sabe cuando se gana.
+    if (body.tipo === "frecuencia") {
+      if (
+        body.criterio_frecuencia === undefined ||
+        body.criterio_frecuencia === null ||
+        !Number.isInteger(body.criterio_frecuencia) ||
+        body.criterio_frecuencia < 1
+      ) {
+        return c.json(
+          {
+            error:
+              "Un premio de tipo frecuencia necesita criterio_frecuencia: cuántas compras lo ganan, un número entero mayor que cero",
+          },
+          400
+        );
+      }
     }
 
     const result = await db
