@@ -80,16 +80,20 @@ No hay endpoints HTTP propios. Es una utilidad interna para duplicados SRI, dupl
 | GET | /hunt/eventos | Sí | Cualquier rol autenticado | ✅ Existe |
 | GET | /hunt/eventos/:id | Sí | Cualquier rol autenticado | ✅ Existe |
 | POST | /hunt/eventos | Sí | organizador o admin | ✅ Existe |
-| POST | /hunt/eventos/:id/rondas | Sí | organizador o admin; propiedad del evento | ✅ Existe |
+| POST | /hunt/eventos/:id/iniciar | Sí | organizador o admin; propiedad del evento | ✅ Existe |
+| POST | /hunt/eventos/:id/rondas | Sí | organizador o admin; propiedad del evento | ✅ Existe; exige fecha y hora completas |
 | POST | /hunt/eventos/:id/sponsors | Sí | organizador o admin; propiedad del evento | ✅ Existe |
 | POST | /hunt/eventos/:eventoId/sponsors/:sponsorId/responder | Sí | negocio; valida comercio propietario | ✅ Existe |
-| POST | /hunt/eventos/:id/premios | Sí | organizador o admin; propiedad del evento | ✅ Existe |
+| POST | /hunt/eventos/:id/premios | Sí | organizador o admin; propiedad del evento | ✅ Existe; valida stock, ronda y criterio |
+| GET | /hunt/eventos/:eventoId/premios/:premioId/progreso | Sí | Cualquier usuario autenticado | ✅ Existe; no exige entrada ni evento abierto |
+| POST | /hunt/eventos/:eventoId/premios/:premioId/reclamar | Sí | Cualquier usuario autenticado | ✅ Existe; valida el criterio de frecuencia |
 | POST | /hunt/eventos/:eventoId/premios/:premioId/entregar | Sí | organizador o admin | ✅ Existe |
-| POST | /hunt/eventos/:eventoId/premios/:premioId/reclamar | Sí | Cualquier usuario autenticado | ✅ Existe |
+| GET | /hunt/eventos/:eventoId/premios/:premioId/ganadores | Sí | organizador o admin | ✅ Existe |
 | POST | /hunt/eventos/:id/entradas/comprar | Sí | Cualquier usuario autenticado | ✅ Existe |
 | POST | /hunt/entradas/:id/comprobante | Sí | Cualquier usuario autenticado; solo su entrada | ✅ Existe |
 | POST | /hunt/entradas/:id/revisar | Sí | organizador o admin; propiedad del evento | ✅ Existe |
 | GET | /hunt/eventos/:eventoId/entradas | Sí | organizador o admin; propiedad del evento | ✅ Existe |
+| GET | /hunt/eventos/:eventoId/participantes-sin-premio | Sí | organizador o admin | ✅ Existe |
 | POST | /hunt/eventos/:eventoId/cupones-consolacion | Sí | organizador o admin; propiedad del evento | ✅ Existe |
 
 Hallazgo: el reclamo de premios existe, pero el código actual separa comprobaciones de duplicado/stock del INSERT; no debe documentarse como completamente atómico o protegido contra toda carrera.
@@ -102,7 +106,130 @@ Hallazgo: el reclamo de premios existe, pero el código actual separa comprobaci
 - Hunt sí existe, incluidos eventos y entradas; no debe marcarse como inexistente.
 - No se encontró endpoint separado para mapa, notificaciones push, panel administrativo completo ni subida de imágenes de tickets.
 
+## Lectura de fechas — packages/backend/src/lib/fechas.ts
+
+Único lugar del backend donde se interpretan fechas. La app guarda cada fecha en un formato distinto según de dónde venga y el backend las recibe tal cual; ordenar esas cadenas de texto no respeta el orden real y no permite restar dos ventanas.
+
+| Export | Para qué sirve | Devuelve |
+|---|---|---|
+| `instanteDeCompra` | Fechas con hora real, las del reloj de quien compró | Milisegundos desde epoch, o `null` |
+| `diaComoCalendario` | Ventanas de negocio: evento y ronda | Minutos desde epoch **del mediodía**, o `null` |
+| `esFechaLegible` | Si un valor se puede leer como fecha, sea del formato que sea | Booleano |
+| `instanteEnVentana` | Si un instante cae dentro de una ventana | Booleano |
+| `instanteEnTextoUtc` / `ahoraEnUtc` | Comparar contra la hora actual del servidor | Texto |
+| `traeHora` | Si la fecha dice la hora, además del día | Booleano |
+
+### Formatos aceptados
+
+| Formato | Ejemplo | Viene de |
+|---|---|---|
+| ISO con `Z` u offset | `2026-03-01T10:00:00-05:00` | SRI |
+| ISO sin zona | `2026-03-01 10:00:00` | App |
+| Año-mes-día | `2026-03-01` | App |
+| Día/mes/año | `01/03/2026` | OCR |
+| Día-mes-año corto | `1-3-26` | Compra declarada |
+
+Ecuador no aplica horario de verano, así que su offset es siempre `-05:00`. Las fechas sin zona se leen como hora de Ecuador. Los años de dos dígitos se expanden a `20XX`.
+
+### Criterio de aceptación
+
+| # | Requisito | Estado | Evidencia |
+|---|---|---|---|
+| F1 | Las ventanas de Hunt y el horario del evento usan el módulo de fechas | ✅ | `hunt/index.ts` y `antifraude/index.ts` importan de `lib/fechas` |
+| F2 | Ventanas de evento y ronda contadas en días calendario de Ecuador | ✅ | `diaComoCalendario` usa el mediodía, para que ningún desfase mueva la fecha al día de al lado |
+| F3 | Corrección del desfase de cinco horas en Hunt | ✅ | Antes la ronda "10:00–12:00" se comparaba contra instantes y se rechazaban compras válidas |
+| F4 | Fechas ilegibles no se bloquean | ✅ | `instanteDeCompra` y `diaComoCalendario` devuelven `null`, y quien las usa decide; el conteo de frecuencia reporta cuántas facturas quedaron fuera |
+| F5 | La app manda la fecha tal como la tiene y el backend la interpreta | ✅ | `FacturasService` no valida ni transforma la fecha; el módulo de fechas acepta los cinco formatos |
+| F6 | Los demás módulos usan el módulo de fechas | ⚠️ | Ver pendiente abajo |
+
+### Pendiente: comparaciones con `new Date()` fuera del módulo de fechas
+
+Quedan cuatro módulos que interpretan fechas con `new Date()` en vez de usar `lib/fechas`. No se tocaron en esta tanda porque su alcance era otro, pero hay que anotarlos, y el primero es serio.
+
+| Ubicación | Qué hace | Riesgo verificado |
+|---|---|---|
+| `modules/auth/index.ts:110-111` | `calcularEdad` compara `getFullYear()`, `getMonth()` y `getDate()` | **Bug confirmado de un año.** Esos getters dan la hora local del servidor. `new Date("2000-09-01")` es medianoche UTC, que en Ecuador es `1999-08-31 19:00`, así que el backend trata a quien nació el 1 de septiembre como nacido el 31 de agosto del año anterior. Quien nació el 1 de enero ve además el año retrocedido. Sirve para validar que sea mayor de 18 y para el consentimiento publicitario, así que el error va en la dirección de dejar pasar a un menor |
+| `modules/flash/index.ts:172` | `termina_en` contra `inicia_en` | Rechaza la promoción si la fecha no es ISO; no distingue día de instante |
+| `modules/flash/index.ts:269-273` | Ventana de una promoción | Mismo caso: no distingue día de instante |
+| `modules/cupones/index.ts:125` | `expira_en` contra ahora | Un cupón puede vencer antes o tarde según de dónde venga la fecha |
+| `modules/facturas/index.ts:122-123` | Vencimiento del challenge de nivel 3 | Mismo caso |
+
+La client-side envía la fecha de nacimiento en ISO (`YYYY-MM-DD`, del selector nativo) y calcula la edad con `DateTime(anio, mes, dia)`, así que **la app no sufre el error**: el bug está solo en la validación del backend, que es la que debería mandar. La corrección es la misma de aquí: usar `diaComoCalendario` y comparar partes, no instantes, y decidir el mismo día-vs-instante que se decidió en el horario del evento.
+
+## Corrección de verificarHorarioEvento
+
+`verificarHorarioEvento` (`packages/backend/src/modules/antifraude/index.ts`) decide si una compra cae dentro de la ventana de su evento. La usan los tres puntos de `facturas/index.ts` donde se registra una compra.
+
+El bug era doble, y por eso hacía falta probarlo por partes:
+
+| Comportamiento anterior | Consecuencia |
+|---|---|
+| `new Date("15/09/2026")` da `NaN`, y toda comparación con `NaN` es falsa | La validación **pasaba siempre**: ningún evento podía rechazar una compra fuera de horario |
+| `new Date("01/09/2026")` lo lee como **9 de enero**, porque asume formato americano mes/día | Una compra legítima del 1 de septiembre se **rechazaba** por estar "antes" del evento |
+
+| # | Requisito | Estado | Evidencia |
+|---|---|---|---|
+| HF1 | Con hora, se comparan instantes | ✅ | Una compra de las 07:00 no es válida en un evento que abre a las 08:00, aunque sea del mismo día |
+| HF2 | Solo con día, se comparan días calendario | ✅ | No se puede afirmar que una compra fue antes de algo que no se sabe a qué hora abre |
+| HF3 | Fecha ilegible → `valido: true` mediante rama explícita | ✅ | Antes pasaba por accidente con `NaN`; ahora es una decisión documentada |
+| HF4 | Sin `evento_id` → `valido: true`, como antes | ✅ | No se cambió ese camino |
+| HF5 | Evento inexistente → `valido: false` | ✅ | Es un error de referencia, no un problema de fecha |
+| HF6 | Evento con horario ilegible → `valido: true` | ✅ | Sin ventana conocida no se puede afirmar que una compra esté fuera |
+| HF7 | No rellenar `facturas.evento_id` ni cambiar los llamadores | ✅ | Los tres llamadores de `facturas/index.ts` quedan intactos |
+
+La decisión de no bloquear cuando la fecha no se puede leer es deliberada: bloquear a alguien por una fecha que el sistema no entiende sería rechazar una compra legítima, y la compra se aprueba igualmente por otros motivos.
+
+## Premios por frecuencia
+
+Un premio de tipo `frecuencia` se gana juntando un número de compras. `criterio_frecuencia` es ese número.
+
+### Qué cuenta y qué no
+
+| Regla | Detalle |
+|---|---|
+| Solo compras **aprobadas** | El conteo parte de facturas en estado `aprobada` |
+| Solo en **comercios patrocinadores** del evento, con el sponsor aprobado | Se une `eventos_sponsors`; un comercio que no patrocina no suma, aunque la compra sea válida |
+| La ventana es la **ronda** si el premio pertenece a una ronda; si no, la del **evento** | `ventanaDelPremio` decide; si la ventana no se puede leer, no se inventa una |
+| El filtrado por fecha se hace en JavaScript, no en SQL | A propósito: el parseo de fechas y las ventanas en Ecuador no son comparaciones que el D1 pueda hacer bien |
+| Facturas con fecha ilegible **no cuentan** pero **se reportan** | `sin_fecha_legible` dice cuántas son, para que el conteo bajo no parezca un error |
+| Un premio sin ventana legible da cero y no se puede ganar | Se prefiere no regalar un premio por un dato que el sistema no entiende |
+
+| # | Requisito | Estado | Evidencia |
+|---|---|---|---|
+| FR1 | `GET /hunt/eventos/:eventoId/premios/:premioId/progreso` expone el progreso | ✅ | Devuelve `compras`, `criterio`, `faltan`, `cumple`, `ventana` y `sin_fecha_legible` |
+| FR2 | Ver el progreso no exige entrada ni evento abierto | ✅ | Es solo información; lo que decide es el reclamo |
+| FR3 | Un premio sin `criterio_frecuencia` responde 422 en vez de un cero | ✅ | Un cero haría pensar que no ha comprado nada |
+| FR4 | Reclamar valida el criterio en el servidor | ✅ | 422 con el número que hace falta: `Este premio se gana con N compras y llevas M` |
+| FR5 | La app muestra el progreso de cada premio por frecuencia | ✅ | `hunt_screen.dart`: barra, `Llevas X de Y compras` y la ventana en letra pequeña |
+| FR6 | El botón de reclamar se desactiva solo si ya se sabe que no cumple | ✅ | Mientras carga, o si la consulta falla, el botón queda activo: el backend sigue validando |
+| FR7 | Si el progreso no se puede cargar, no se muestra barra | ✅ | Es peor dejar a alguien esperando que bloquearle por un dato que no llegó |
+| FR8 | Se avisa cuántas facturas quedaron fuera por fecha ilegible | ✅ | `N factura(s) no se contaron porque no se pudo leer su fecha.` |
+| FR9 | Los premios de otros tipos no cambian | ✅ | Ni se les pregunta el progreso, ni se les toca el diseño |
+| FR10 | Un 422 en un premio no deja a los demás sin barra | ✅ | Los progresos se piden juntos pero se resuelven por separado |
+
+## Aviso de notificaciones
+
+`NotificacionesService` y el widget `aviso_permiso_notificaciones.dart` implementan un ciclo que ya no vuelve a molestar a quien dijo que no.
+
+| Regla | Detalle |
+|---|---|
+| Se avisa al entrar a la app con sesión, y no antes | El widget envuelve la pantalla del rol en `role_navigation.dart`, así que nunca aparece sin sesión |
+| **Ahora no** cierra el aviso para siempre | Se guarda `notificaciones_aviso_cerrado` |
+| **Activar** pide el permiso y cierra el aviso | Pero solo si el sistema lo concede o lo deniega permanentemente |
+| Un rechazo simple **no** cierra el aviso | El sistema puede volver a preguntar; el aviso queda disponible |
+| Tope de 2 avisos por instalación | `maximoVecesAviso = 2`, contado con `notificaciones_aviso_veces` |
+| El token FCM se registra **después** de decidir | Nunca se pide un token antes de que la persona haya dicho qué quiere |
+| El permiso concedido no muestra más avisos | `debeMostrarAviso` es falso si ya está concedido |
+
+| # | Requisito | Estado | Evidencia |
+|---|---|---|---|
+| N1 | El aviso no se repite indefinidamente | ✅ | Tope de 2 y cierre permanente |
+| N2 | Un rechazo simple no cuenta como "ya me escribiste" | ✅ | El botón de activar sigue disponible |
+| N3 | El token FCM se registra tras la decisión | ✅ | `registrarToken` se llama al cerrar el diálogo, no al abrirlo |
+| N4 | Cerrar el diálogo sin decidir no lo marca como visto | ✅ | Solo cuenta cuando se elige una opción |
+
 ## Requisitos por flujo
+
 
 ### Auth
 
@@ -192,7 +319,7 @@ Hallazgo: el reclamo de premios existe, pero el código actual separa comprobaci
 |---|---|---|---|
 | AF1 | Duplicados SRI | ✅ | Utilidad central usada por Facturas |
 | AF2 | Duplicados de tickets | ✅ | Composite key y rechazo centralizado |
-| AF3 | Horario del evento | ✅ | Utilidad de verificación |
+| AF3 | Horario del evento | ✅ | `verificarHorarioEvento`; compara por día o por instante según la fecha, y no bloquea si no se puede leer |
 | AF4 | Solo aprobadas generan beneficios | ⚠️ | estadoPermiteBeneficios devuelve solo estado aprobada; falta confirmar que todos los flujos la usen |
 | AF5 | Reclamo atómico de premios | ⚠️ | Lecturas separadas antes de insertar |
 | AF6 | Puntos aislados por evento | ✅ | UNIQUE (evento_id, usuario_id) |
@@ -205,8 +332,8 @@ Hallazgo: el reclamo de premios existe, pero el código actual separa comprobaci
 |---|---|---|---|---|
 | AuthService | registro | POST /auth/registro | Sí | ✅ Sin token, correcto |
 | AuthService | login | POST /auth/login | Sí | ✅ Guarda tokens |
-| AuthService | actualizarConsentimiento | PATCH /auth/consentimiento | Sí | ⚠️ No envía token |
-| AuthService | refresh | — | Sí /auth/refresh | ⏳ No hay método Flutter |
+| AuthService | refresh | POST /auth/refresh | Sí | ✅ Método propio; además `ApiClient` lo llama solo ante un 401 |
+| AuthService | actualizarConsentimiento | PATCH /auth/consentimiento | Sí | ⚠️ Sigue sin enviar token |
 | ComerciosService | listar | GET /comercios | Sí | ✅ Público |
 | ComerciosService | cercanos | GET /comercios/cercanos | Sí | ✅ Público |
 | ComerciosService | obtener | GET /comercios/:id | Sí | ✅ Público |
@@ -223,14 +350,18 @@ Hallazgo: el reclamo de premios existe, pero el código actual separa comprobaci
 | FlashService | obtenerPromocion | GET /flash/promociones/:id | Sí | ⚠️ No envía token; recibe 401 |
 | FlashService | reclamarPromocion | POST /flash/promociones/:id/claim | Sí | ⚠️ Ruta correcta, sin token |
 | FlashService | misCupones | GET /flash/mis-cupones | Sí | ⚠️ No envía token |
-| HuntService | listarEventos | GET /hunt/eventos | Sí | ⚠️ No envía token; recibe 401 |
-| HuntService | obtenerEvento | GET /hunt/eventos/:id | Sí | ⚠️ No envía token |
-| HuntService | crearEvento | POST /hunt/eventos | Sí | ⚠️ No envía token; no hay pantalla |
-| HuntService | comprarEntrada | POST /hunt/eventos/:id/entradas/comprar | Sí | ⚠️ No envía token |
-| HuntService | listarEntradas | GET /hunt/eventos/:eventoId/entradas | Sí | ⚠️ No envía token; rol organizador/admin |
-| HuntService | revisarEntrada | POST /hunt/entradas/:id/revisar | Sí | ⚠️ No envía token; no hay pantalla |
+| HuntService | listarEventos | GET /hunt/eventos | Sí | ✅ Envía token |
+| HuntService | obtenerEvento | GET /hunt/eventos/:id | Sí | ✅ Envía token |
+| HuntService | crearEvento | POST /hunt/eventos | Sí | ✅ Envía token; hay pantalla de creación |
+| HuntService | comprarEntrada | POST /hunt/eventos/:id/entradas/comprar | Sí | ✅ Envía token |
+| HuntService | listarEntradas | GET /hunt/eventos/:eventoId/entradas | Sí | ✅ Envía token; rol organizador/admin |
+| HuntService | revisarEntrada | POST /hunt/entradas/:id/revisar | Sí | ✅ Envía token; hay pantalla de revisión |
+| HuntService | reclamarPremio | POST /hunt/eventos/:eventoId/premios/:premioId/reclamar | Sí | ✅ Envía token |
+| HuntService | progresoFrecuencia | GET /hunt/eventos/:eventoId/premios/:premioId/progreso | Sí | ✅ Envía token |
 
-Métodos Hunt que no están en HuntService: crear rondas, premios, sponsors, respuesta del negocio, comprobante de entrada, entrega de premios, reclamo de premios y cupones de consolación.
+`HuntService` cubre además crear rondas, crear premios, invitar sponsor, subir comprobante, entregar premio, gananadores, participantes sin premio y emitir cupones de consolación. Ningún método de `HuntService` ni de `FlashService` se queda sin token; lo que no lo manda es la pantalla que los llama.
+
+**Lo que sigue sin token:** `AuthService.actualizarConsentimiento` y todas las llamadas de `flash_screen.dart`.
 
 ### Pantallas existentes
 
@@ -247,47 +378,68 @@ Métodos Hunt que no están en HuntService: crear rondas, premios, sponsors, res
 | nivel3_capture_screen.dart — Nivel3CaptureScreen | FacturasService, OcrService | /facturas/challenge y /facturas/registrar | ✅ Endpoint existente; evidencia no criptográfica |
 | flash_screen.dart — FlashScreen | FlashService | /flash/promociones | ⚠️ Existe; falta token |
 | flash_screen.dart — _FlashDetalleScreen | FlashService | /flash/promociones/:id, /claim | ⚠️ Existe; falta token |
-| hunt_screen.dart — HuntScreen | HuntService | /hunt/eventos | ⚠️ Existe; falta token |
-| hunt_screen.dart — _EventoDetalleScreen | HuntService | /hunt/eventos/:id, /entradas/comprar | ⚠️ Existe; falta token |
+| hunt_screen.dart — HuntScreen | HuntService | /hunt/eventos | ✅ Coherente |
+| hunt_screen.dart — _EventoDetalleScreen | HuntService | /hunt/eventos/:id, /entradas/comprar, /premios/:id/progreso, /premios/:id/reclamar | ✅ Coherente; muestra el progreso de frecuencia |
 
-Hay 11 archivos de pantalla y 13 clases widget contando las dos pantallas de detalle privadas. No hay pantalla dedicada de Mis cupones, canje, administración de comercio, organización Hunt ni revisión de entradas.
+Hay 29 archivos en `lib/screens` y 43 clases widget en `lib/` contando las pantallas privadas de detalle. Sí existen `canjear_cupon_screen.dart`, `cupon_consolacion_screen.dart`, `revision_entradas_screen.dart`, `mi_comercio_form_screen.dart`, `sponsors_screen.dart` y las de creación de evento, ronda, premio y promoción. No hay pantalla de administración general ni de mapa.
 
 ## Auditoría de geolocalización y permisos
 
 ### Paquetes
 
 - apps/cliente_app/pubspec.yaml:40-41 declara geolocator: ^14.0.0 y permission_handler: ^11.3.1.
-- No se encontró uso directo de permission_handler dentro de lib; el flujo usa APIs de Geolocator.
+- `permission_handler` ya se usa en `lib`: `permiso_camara_service.dart` y `permiso_ubicacion_service.dart`, que exponen los estados del permiso y `openAppSettings()`. El resto de los flujos sigue con las APIs de Geolocator.
 
 ### HomeScreen
 
-Archivo: apps/cliente_app/lib/screens/home_screen.dart:53-80.
-
 1. Comprueba Geolocator.isLocationServiceEnabled().
 2. Si el servicio está apagado, muestra Servicios de ubicación desactivados y termina.
-3. Comprueba Geolocator.checkPermission().
-4. Si está denegado, ejecuta Geolocator.requestPermission().
-5. Si sigue denegado, muestra Permiso de ubicación denegado.
-6. Si está denegado permanentemente, muestra Permiso de ubicación denegado permanentemente.
-7. Si hay permiso, llama getCurrentPosition con alta precisión y timeout de 10 segundos.
-8. Si falla la lectura, muestra No se pudo obtener la ubicación.
-9. Si funciona, carga /comercios/cercanos y vuelve a cargar /comercios con lat y lng.
-
-En apps/cliente_app/lib/screens/home_screen.dart:367-382 se muestra un banner naranja con botón Reintentar. No se encontró openAppSettings; si el permiso quedó permanentemente denegado, solo puede reintentarse desde la pantalla.
+3. Pide el permiso con `solicitarPermisoUbicacion()` de `permiso_ubicacion_service.dart`.
+4. Si está denegado, muestra Permiso de ubicación denegado y puede reintentarse.
+5. Si está denegado permanentemente, ofrece abrir los ajustes.
+6. Si hay permiso, llama getCurrentPosition con alta precisión y timeout de 10 segundos.
+7. Si falla la lectura, muestra No se pudo obtener la ubicación, con un banner naranja y botón Reintentar.
+8. Si funciona, carga /comercios/cercanos y vuelve a cargar /comercios con lat y lng.
 
 ### FlashScreen
 
-Archivo: apps/cliente_app/lib/screens/flash_screen.dart:2,34-38.
-
-- Intenta Geolocator.getCurrentPosition con alta precisión y timeout de 5 segundos.
-- No comprueba ni solicita permiso explícitamente.
-- Si falla, continúa con lat y lng nulos y aun así llama a Flash; ubicación es opcional para ese servicio.
+Ya no depende solo de `Geolocator` con excepciones: usa `permiso_ubicacion_service.dart` y su propio aviso. Ver "Flash pide su propia ubicación" más abajo.
 
 ### Plataforma
 
-- apps/cliente_app/android/app/src/main/AndroidManifest.xml no declara explícitamente ACCESS_FINE_LOCATION ni ACCESS_COARSE_LOCATION.
-- apps/cliente_app/ios/Runner/Info.plist no contiene NSLocationWhenInUseUsageDescription ni NSLocationAlwaysAndWhenInUseUsageDescription.
-- La lógica Dart existe, pero la configuración de permisos de plataforma queda incompleta/no verificada, especialmente para iOS.
+Los cuatro permisos que la app necesita están declarados. Antes faltaban los de ubicación, y el backend ya exigía token en rutas geográficas.
+
+| Permiso | Android (`AndroidManifest.xml`) | iOS (`Info.plist`) |
+|---|---|---|
+| Cámara | `android.permission.CAMERA` | `NSCameraUsageDescription` |
+| Ubicación | `ACCESS_FINE_LOCATION` y `ACCESS_COARSE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
+| Notificaciones | `POST_NOTIFICATIONS` | No aplica clave de descripción |
+| Fotos de la galería | — | `NSPhotoLibraryUsageDescription` |
+
+### Cámara bajo demanda
+
+`permiso_camara_service.dart` es el único que consulta el permiso, y lo comparte `facturacion_screen`, `ocr_capture_screen`, `nivel3_capture_screen` y `comprobante_entrada_screen`, además del aviso `aviso_permiso_camara.dart`.
+
+| Regla | Detalle |
+|---|---|
+| Se pide cuando la pantalla necesita la cámara, no al arrancar | `solicitarPermisoCamara` solo consulta si el estado es `denied`; si nunca se preguntó, ahí lo pide |
+| Elegir una foto de la galería no necesita cámara | `revisarPermisoParaCaptura(requiereCamara: false)` devuelve concedido sin tocar el sistema |
+| Denegado permanentemente abre los ajustes | `abrirConfiguracion()` es el único camino para revertirlo; Android no deja volver a preguntar |
+| Un rechazo simple deja poder reintentar | El estado `denegado` se distingue de `denegadoPermanente` |
+
+### Flash pide su propia ubicación
+
+`flash_screen.dart` no espera al permiso de la pantalla de inicio: llama a `solicitarPermisoUbicacion()` y distingue `denegado` de `denegadoPermanente`, y en ese caso ofrece abrir los ajustes. Si no hay permiso, sigue funcionando con `lat` y `lng` nulos, porque la ubicación es opcional para ese servicio.
+
+### El reporte de ubicación solo comprueba
+
+`reporte_ubicacion.dart` es el widget que reporta la posición para el disparador de "Flash por cercanía". **No es un servicio de seguimiento en segundo plano**: solo reacciona a que la app vuelva a primer plano y a un intervalo de 5 minutos mientras sigue visible, y se monta en `main.dart`.
+
+Comprueba el permiso antes de tocar el GPS, y si falta, termina en silencio: no pide permiso con un diálogo ni interrumpe el uso de la app, porque el permiso se pide desde la pantalla que lo necesita. Un fallo de red o de señal también se traga, porque el reporte es opcional.
+
+### HomeScreen y los ajustes del sistema
+
+`home_screen.dart` ya no pide el permiso por su cuenta: usa `solicitarPermisoUbicacion()` y, si quedó denegado permanentemente, ofrece abrir los ajustes con `abrirConfiguracionUbicacion()`. La lógica de servicios apagados, timeout de 10 segundos y reintento se mantiene.
 
 ### Backend geográfico
 
@@ -297,13 +449,17 @@ Archivo: apps/cliente_app/lib/screens/flash_screen.dart:2,34-38.
 
 ## Verificación de esta auditoría
 
+Cifras medidas en esta corrida, no copiadas de documentación anterior.
+
 | Comprobación | Resultado observado |
 |---|---|
-| pnpm run typecheck en packages/backend | ✅ 0 errores |
-| pnpm run test en packages/backend | ✅ 110/110, 11 archivos |
-| pnpm run build en packages/backend | ✅ 142.56 KiB / gzip 30.22 KiB |
-| flutter analyze en apps/cliente_app | ⚠️ 0 errores, 17 avisos informativos |
-| flutter test en apps/cliente_app | ✅ 18/18, 3 archivos |
-| git diff --check | ✅ Sin errores de whitespace |
+| `pnpm typecheck` en packages/backend | ✅ 0 errores |
+| `pnpm test` en packages/backend | ✅ 252/252, 20 archivos |
+| `pnpm build` en packages/backend | ✅ 171.08 KiB / gzip 36.50 KiB |
+| `flutter analyze` en apps/cliente_app | ⚠️ 0 errores, 32 avisos informativos |
+| `flutter test` en apps/cliente_app | ✅ 122/122, 18 archivos |
+| `git diff --check` | ✅ Sin errores de whitespace |
 
-La auditoría no implementa correcciones. Las discrepancias ⚠️ quedan como trabajo posterior; no deben reinterpretarse como funcionalidades terminadas solo porque exista un endpoint backend o una pantalla Flutter.
+Los 32 avisos de `flutter analyze` son `info` de lints de estilo (`use_null_aware_elements`, `prefer_function_declarations_over_variables`, `slash_for_doc_comments`) en código anterior a esta tanda. Ninguno es un error ni un aviso de calidad que afecte al funcionamiento.
+
+La auditoría no implementa correcciones por sí misma. Las discrepancias ⚠️ quedan como trabajo posterior; no deben reinterpretarse como funcionalidades terminadas solo porque exista un endpoint backend o una pantalla Flutter.
