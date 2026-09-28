@@ -1,6 +1,3 @@
-import 'dart:typed_data';
-import 'dart:ui' show Size;
-
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 class OcrResult {
@@ -31,16 +28,16 @@ class OcrResult {
 class OcrService {
   final _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
-  Future<OcrResult> extraerDatos(Uint8List imagenBytes) async {
-    final inputImage = InputImage.fromBytes(
-      bytes: imagenBytes,
-      metadata: InputImageMetadata(
-        size: const Size(1920, 1080),
-        rotation: InputImageRotation.rotation0deg,
-        format: InputImageFormat.nv21,
-        bytesPerRow: 1920,
-      ),
-    );
+  /// Lee la foto del comprobante desde su ruta en disco.
+  ///
+  /// Antes se pasaba la imagen como bytes con unos metadatos inventados
+  /// (1920x1080, nv21, sin rotacion) que no tenian nada que ver con la foto.
+  /// ML Kit necesita saber el tamaño real, el formato y la rotacion, asi que
+  /// con esos datos leia ruido y el OCR no encontraba los campos. Con la ruta
+  /// el propio plugin deduce todo eso. Ademas asi la imagen no se carga en
+  /// memoria ni se manda a ningun sitio: se queda en el telefono.
+  Future<OcrResult> extraerDatos(String rutaImagen) async {
+    final inputImage = InputImage.fromFilePath(rutaImagen);
     final recognizedText = await _textRecognizer.processImage(inputImage);
     final lines = recognizedText.text
         .split('\n')

@@ -76,8 +76,9 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
         _error = null;
       });
 
-      final bytes = await File(xFile.path).readAsBytes();
-      final ocrResult = await _ocrService.extraerDatos(bytes);
+      // La ruta es suficiente: el OCR la lee del disco y la foto no se
+      // convierte a bytes ni se sube a ningun servidor.
+      final ocrResult = await _ocrService.extraerDatos(xFile.path);
 
       if (!mounted) return;
 

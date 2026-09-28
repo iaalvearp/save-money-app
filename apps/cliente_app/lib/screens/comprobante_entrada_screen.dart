@@ -40,6 +40,11 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
   late final HuntService _servicio;
   late final AuthService _auth;
   Uint8List? _imagen;
+
+  /// Ruta del comprobante en el disco. Se guarda aparte de los bytes para que
+  /// la imagen se pueda leer por ruta (que es lo que necesita el OCR) sin
+  /// depender de tenerla cargada en memoria.
+  String? _rutaImagen;
   bool _enviando = false;
   EstadoPermisoCamara? _estadoPermiso;
   String? _error;
@@ -89,6 +94,12 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
     }
   }
 
+  /// Captura la foto y devuelve los bytes, guardando antes la ruta en
+  /// [_rutaImagen].
+  ///
+  /// Aqui los bytes si hacen falta: esta pantalla existe para mandar el
+  /// comprobante al backend y el endpoint los espera en base64. El OCR, en
+  /// cambio, va siempre por la ruta.
   Future<Uint8List?> _capturarConImagePicker(ImageSource source) async {
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
@@ -97,6 +108,7 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
       maxWidth: 1280,
     );
     if (xFile == null) return null;
+    _rutaImagen = xFile.path;
     return File(xFile.path).readAsBytes();
   }
 
@@ -210,12 +222,22 @@ class _ComprobanteEntradaScreenState extends State<ComprobanteEntradaScreen> {
             if (_imagen != null) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  _imagen!,
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
+                // Se muestra el archivo del disco cuando se capturó en el
+                // dispositivo. Los bytes se reservan para el envío, que es lo
+                // único que los necesita.
+                child: _rutaImagen != null
+                    ? Image.file(
+                        File(_rutaImagen!),
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.memory(
+                        _imagen!,
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
               ),
               const SizedBox(height: 16),
             ],

@@ -145,10 +145,12 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
 
       setState(() => _estado = _Estado.procesando);
 
+      // El hash del claim es lo unico que necesita los bytes. El OCR va con la
+      // ruta, que es como el plugin lee bien la imagen.
       final bytes = await File(xFile.path).readAsBytes();
       final claimHash = sha256.convert(bytes).toString();
 
-      final ocrResult = await _ocrService.extraerDatos(bytes);
+      final ocrResult = await _ocrService.extraerDatos(xFile.path);
 
       if (!mounted) return;
       setState(() => _ocrResult = ocrResult);
@@ -340,7 +342,7 @@ class _Nivel3CaptureScreenState extends State<Nivel3CaptureScreen> {
                 setState(() => _estado = _Estado.procesando);
                 final bytes = await File(xFile.path).readAsBytes();
                 final claimHash = sha256.convert(bytes).toString();
-                final ocr = await _ocrService.extraerDatos(bytes);
+                final ocr = await _ocrService.extraerDatos(xFile.path);
                 if (!mounted) return;
                 setState(() => _ocrResult = ocr);
                 await _enviarClaim(claimHash: claimHash);
