@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../widgets/dialogo_error.dart';
 import 'agregar_ronda_screen.dart';
 import 'premios_screen.dart';
 import 'revision_entradas_screen.dart';
@@ -135,10 +137,19 @@ class _EventoDetalleScreenState extends State<EventoDetalleScreen> {
         SnackBar(content: Text('Hunt iniciado. $notificados notificados')),
       );
       _cargar();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo iniciar el Hunt',
+        mensaje: e.message,
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo iniciar el Hunt')),
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo iniciar el Hunt',
+        mensaje: 'No se pudo iniciar el Hunt.',
       );
     }
   }

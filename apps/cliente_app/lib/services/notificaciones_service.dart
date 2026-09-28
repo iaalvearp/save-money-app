@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -153,8 +154,13 @@ class NotificacionesService {
         body: {'fcm_token': fcmToken},
         token: accessToken,
       );
-    } catch (_) {
-      // Registrar el token no debe impedir el uso normal de la app
+    } catch (e, st) {
+      // Registrar el token no debe impedir el uso normal de la app, así que el
+      // error se traga. Antes ni siquiera se anotaba, y cuando el registro
+      // fallaba no había forma de saber por qué las notificaciones no
+      // llegaban. Se deja rastro en consola y el flujo sigue igual.
+      debugPrint('[notificaciones] No se pudo registrar el token FCM: $e');
+      debugPrintStack(stackTrace: st, label: '[notificaciones] origen del fallo al registrar el token FCM');
     }
   }
 

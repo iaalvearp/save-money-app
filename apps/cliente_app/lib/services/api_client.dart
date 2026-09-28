@@ -43,16 +43,66 @@ class ApiClient {
       }
     }
 
-    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return _interpretar(response);
+  }
+
+  /// Convierte la respuesta en un mapa, o lanza el error que corresponde.
+  ///
+  /// El estado se mira antes de intentar leer el cuerpo. Si el servidor
+  /// devolvió una página de error, un HTML o un texto plano, antes esto
+  /// reventaba con un error de formato y se perdía tanto el estado real como
+  /// el mensaje que el backend sí había escrito.
+  Map<String, dynamic> _interpretar(http.Response response) {
+    final cuerpo = response.body.trim();
+    final objeto = cuerpo.isEmpty ? null : _leerJson(cuerpo);
 
     if (response.statusCode >= 400) {
       throw ApiException(
         statusCode: response.statusCode,
-        message: responseBody['error'] as String? ?? 'Error desconocido',
+        message: _mensajeDeError(cuerpo, objeto),
       );
     }
 
-    return responseBody;
+    // Una respuesta correcta sin cuerpo (por ejemplo un 204) no es un error:
+    // simplemente no trae datos.
+    if (objeto == null) {
+      if (cuerpo.isEmpty) return <String, dynamic>{};
+      throw ApiException(
+        statusCode: response.statusCode,
+        message: 'La respuesta del servidor no se pudo leer '
+            '(se esperaba un objeto JSON)',
+      );
+    }
+
+    return objeto;
+  }
+
+  /// Lee el cuerpo como objeto JSON, o devuelve null si no lo es.
+  static Map<String, dynamic>? _leerJson(String cuerpo) {
+    try {
+      final decodificado = jsonDecode(cuerpo);
+      return decodificado is Map<String, dynamic> ? decodificado : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// Elige el mensaje que se le va a mostrar a la persona.
+  ///
+  /// Se prefiere el campo "error" del backend; si no viene, se usa el texto
+  /// crudo que respondió el servidor, y solo si no hay nada se cae en un
+  /// mensaje genérico.
+  static String _mensajeDeError(String cuerpo, Map<String, dynamic>? objeto) {
+    final delJson = objeto?['error'];
+    if (delJson is String && delJson.trim().isNotEmpty) {
+      return delJson;
+    }
+
+    if (cuerpo.isNotEmpty) {
+      return cuerpo;
+    }
+
+    return 'Error desconocido';
   }
 
   Future<Map<String, dynamic>> post(

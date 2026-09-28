@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../services/api_client.dart';
 import '../services/flash_service.dart';
 import '../services/permiso_ubicacion_service.dart';
+import '../widgets/dialogo_error.dart';
 
 class FlashScreen extends StatefulWidget {
   /// Inyecta el permiso de ubicación en vez de consultar el sistema. Solo se
@@ -440,20 +442,38 @@ class _FlashDetalleScreenState extends State<_FlashDetalleScreen> {
           ],
         ),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _reclamando = false);
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo reclamar',
+        mensaje: _mensajeDeReclamacion(e),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _reclamando = false);
-
-      String msg = 'Error al reclamar la promoción';
-      if (e.toString().contains('409')) {
-        msg = 'Ya reclamaste esta promoción';
-      } else if (e.toString().contains('422')) {
-        msg = 'La promoción ha expirado o no está disponible';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.red),
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo reclamar',
+        mensaje: 'Error al reclamar la promoción.',
       );
+    }
+  }
+
+  /// Traduce los errores conocidos de esta pantalla a un mensaje entendible.
+  ///
+  /// Se mira el estado que devuelve el backend, no el texto de la excepción:
+  /// antes se comparaba contra el `toString`, que dependía de cómo se
+  /// formateara el error y por eso no siempre coincidía.
+  String _mensajeDeReclamacion(ApiException e) {
+    switch (e.statusCode) {
+      case 409:
+        return 'Ya reclamaste esta promoción.';
+      case 422:
+        return 'La promoción ha expirado o no está disponible.';
+      default:
+        return e.message;
     }
   }
 

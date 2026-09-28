@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../widgets/dialogo_error.dart';
 import 'comprobante_entrada_screen.dart';
 
 class HuntScreen extends StatefulWidget {
@@ -551,16 +553,19 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         ),
       );
       await _cargar();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo reclamar',
+        mensaje: e.message,
+      );
     } catch (e) {
       if (!mounted) return;
-      final message = e.toString().contains('ApiException')
-          ? (e as dynamic).message
-          : 'Error al reclamar el premio';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo reclamar',
+        mensaje: 'Error al reclamar el premio.',
       );
     }
   }
@@ -644,17 +649,21 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         const SnackBar(
             content: Text('Entrada registrada. Sube tu comprobante de pago.')),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _comprando = false);
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo comprar la entrada',
+        mensaje: e.message,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _comprando = false);
-      final message = e.toString().contains('ApiException')
-          ? (e as dynamic).message
-          : 'Error al comprar entrada';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo comprar la entrada',
+        mensaje: 'Error al comprar la entrada.',
       );
     }
   }

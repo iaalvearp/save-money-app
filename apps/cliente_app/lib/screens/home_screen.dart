@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../services/comercios_service.dart';
 import '../services/notificaciones_service.dart';
+import '../widgets/dialogo_error.dart';
 import 'ajustes_sheet.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
@@ -202,10 +203,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               } catch (e) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('No se pudo enviar la notificación'),
-                  ),
+                await mostrarErrorDialog(
+                  context,
+                  titulo: 'No se pudo enviar',
+                  mensaje: 'No se pudo enviar la notificación de prueba.',
                 );
               }
             },

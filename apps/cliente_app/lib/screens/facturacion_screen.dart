@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
 import '../services/permiso_camara_service.dart';
 import '../widgets/aviso_permiso_camara.dart';
+import '../widgets/dialogo_error.dart';
 import 'nivel3_capture_screen.dart';
 import 'ocr_capture_screen.dart';
 import 'ocr_confirm_screen.dart';
@@ -532,8 +532,7 @@ class _QrScannerScreen extends StatefulWidget {
 
 class _QrScannerScreenState extends State<_QrScannerScreen> {
   final MobileScannerController _controller = MobileScannerController();
-  String? _ultimoCodigoProcesado;
-  Timer? _debounce;
+  bool _dialogoVisible = false;
   bool _resolvidoValido = false;
   EstadoPermisoCamara _estadoPermiso = EstadoPermisoCamara.concediendo;
 
@@ -545,7 +544,6 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -556,7 +554,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
     setState(() => _estadoPermiso = estado);
   }
 
-  void _onDetect(BarcodeCapture captura) {
+  Future<void> _onDetect(BarcodeCapture captura) async {
     if (_resolvidoValido) return;
 
     String? valor;
@@ -568,29 +566,26 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
     }
     if (valor == null) return;
 
-    final esPrimeraDeteccion = _ultimoCodigoProcesado != valor;
-    _ultimoCodigoProcesado = valor;
-    _debounce?.cancel();
-
     if (esClaveAccesoValida(valor)) {
       _resolvidoValido = true;
       Navigator.of(context).pop(valor);
       return;
     }
 
-    if (!esPrimeraDeteccion) return;
+    // Mientras el aviso está abierto el mismo código no vuelve a disparar el
+    // diálogo. El escáner sigue leyendo fotogramas y, con el diálogo encima,
+    // se acumulaban varios avisos apilados.
+    if (_dialogoVisible) return;
+    _dialogoVisible = true;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Este código QR no corresponde a una clave de acceso válida',
-        ),
-        duration: Duration(seconds: 2),
-      ),
+    await mostrarErrorDialog(
+      context,
+      titulo: 'QR no válido',
+      mensaje: 'Este código QR no corresponde a una clave de acceso válida.',
     );
-    _debounce = Timer(const Duration(seconds: 3), () {
-      _ultimoCodigoProcesado = null;
-    });
+
+    if (!mounted) return;
+    _dialogoVisible = false;
   }
 
   @override
