@@ -3,6 +3,9 @@ import {
   instanteDeCompra,
   diaComoCalendario,
   esFechaLegible,
+  instanteEnVentana,
+  instanteEnTextoUtc,
+  ahoraEnUtc,
 } from "../fechas";
 
 /** Ecuador: el mediodia son las 17:00 UTC, porque va cinco horas atras. */
@@ -163,5 +166,75 @@ describe("desfase de Ecuador", () => {
       instanteDeCompra("2026-07-15 12:00:00")!
     );
     expect(mediodiaJulio.getUTCHours()).toBe(MEDIODIA_ECUADOR_UTC);
+  });
+});
+
+describe("instanteEnVentana", () => {
+  const INICIO = "2026-03-01 10:00:00";
+  const FIN = "2026-03-01 18:00:00";
+
+  it("acepta un instante que cae dentro de la ventana", () => {
+    // Las 12:00 en Quito caen dentro de una ventana de 10:00 a 18:00.
+    const mediodia = instanteDeCompra("2026-03-01 12:00:00");
+
+    expect(instanteEnVentana(mediodia, INICIO, FIN)).toBe(true);
+  });
+
+  it("acepta los extremos exactos de la ventana", () => {
+    expect(instanteEnVentana(instanteDeCompra(INICIO), INICIO, FIN)).toBe(true);
+    expect(instanteEnVentana(instanteDeCompra(FIN), INICIO, FIN)).toBe(true);
+  });
+
+  it("rechaza un instante antes de que empiece", () => {
+    const temprano = instanteDeCompra("2026-03-01 09:59:59");
+
+    expect(instanteEnVentana(temprano, INICIO, FIN)).toBe(false);
+  });
+
+  it("rechaza un instante despues de que acabe", () => {
+    const tarde = instanteDeCompra("2026-03-01 18:00:01");
+
+    expect(instanteEnVentana(tarde, INICIO, FIN)).toBe(false);
+  });
+
+  it("lee la ventana como hora de Ecuador, no como UTC", () => {
+    // Este es el error que se corrigio. Las 10:00 de Quito son las 15:00 UTC,
+    // asi que un instante de las 14:55 UTC todavia esta antes de abrir y uno
+    // de las 15:05 UTC ya esta dentro. Leyendo la ventana como UTC, el
+    // resultado seria el contrario: abriria cinco horas antes de tiempo.
+    const cincoMinutosAntesDeAbrirEnUtc = Date.UTC(2026, 2, 1, 14, 55);
+    const cincoMinutosDespuesDeAbrirEnUtc = Date.UTC(2026, 2, 1, 15, 5);
+
+    expect(instanteEnVentana(cincoMinutosAntesDeAbrirEnUtc, INICIO, FIN)).toBe(
+      false
+    );
+    expect(instanteEnVentana(cincoMinutosDespuesDeAbrirEnUtc, INICIO, FIN)).toBe(
+      true
+    );
+  });
+
+  it("devuelve false si no se puede leer la ventana", () => {
+    const ahora = Date.now();
+
+    expect(instanteEnVentana(ahora, "no es fecha", FIN)).toBe(false);
+    expect(instanteEnVentana(ahora, INICIO, "31/02/2026")).toBe(false);
+    expect(instanteEnVentana(ahora, null, null)).toBe(false);
+  });
+
+  it("devuelve false si el instante a comparar no se conoce", () => {
+    expect(instanteEnVentana(null, INICIO, FIN)).toBe(false);
+  });
+});
+
+describe("instanteEnTextoUtc", () => {
+  it("usa el mismo formato que datetime('now')", () => {
+    // Sin T y sin milisegundos, que es como los guarda la base de datos.
+    expect(instanteEnTextoUtc(Date.UTC(2026, 2, 1, 15, 0, 0))).toBe(
+      "2026-03-01 15:00:00"
+    );
+  });
+
+  it("ahoraEnUtc devuelve un texto con ese mismo formato", () => {
+    expect(ahoraEnUtc()).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 });

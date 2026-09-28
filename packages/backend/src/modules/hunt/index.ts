@@ -2,6 +2,12 @@ import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
 import { emitirCupon } from "../cupones/index";
 import { notificarAUsuarios } from "../notificaciones/index";
+import {
+  ahoraEnUtc,
+  instanteDeCompra,
+  instanteEnTextoUtc,
+  instanteEnVentana,
+} from "../../lib/fechas";
 
 interface AppEnv {
   Bindings: {
@@ -16,6 +22,22 @@ interface AppEnv {
 }
 
 const hunt = new Hono<AppEnv>();
+
+/**
+ * Si una ventana de tiempo esta bien escrita y empieza antes de que acaba.
+ *
+ * Una ventana con una fecha ilegible no se da por buena: entraria en la base
+ * sin poder usarse nunca.
+ */
+function ventanaBienOrdenada(
+  desde: string,
+  hasta: string
+): boolean {
+  const inicio = instanteDeCompra(desde);
+  const fin = instanteDeCompra(hasta);
+  if (inicio === null || fin === null) return false;
+  return fin > inicio;
+}
 
 hunt.get(
   "/eventos",
@@ -114,7 +136,7 @@ hunt.post(
     if (!body.fecha_inicio || !body.fecha_fin) {
       return c.json({ error: "Fechas de inicio y fin son requeridas" }, 400);
     }
-    if (new Date(body.fecha_fin) <= new Date(body.fecha_inicio)) {
+    if (!ventanaBienOrdenada(body.fecha_inicio, body.fecha_fin)) {
       return c.json({ error: "La fecha de fin debe ser posterior al inicio" }, 400);
     }
 
@@ -477,7 +499,7 @@ hunt.post(
     const user = c.get("user");
     const eventoId = c.req.param("eventoId");
     const premioId = c.req.param("premioId");
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const now = ahoraEnUtc();
 
     const evento = await db
       .prepare("SELECT id, fecha_inicio, fecha_fin, requiere_entrada FROM eventos WHERE id = ?")
@@ -488,8 +510,9 @@ hunt.post(
       return c.json({ error: "Evento no encontrado" }, 404);
     }
 
-    const nowDate = new Date(now);
-    if (nowDate < new Date(evento.fecha_inicio) || nowDate > new Date(evento.fecha_fin)) {
+    // La ventana del evento esta escrita en hora de Ecuador, asi que se
+    // compara como instante y no como texto.
+    if (!instanteEnVentana(Date.now(), evento.fecha_inicio, evento.fecha_fin)) {
       return c.json({ error: "Fuera del horario del evento" }, 422);
     }
 
@@ -718,7 +741,7 @@ hunt.post(
 
     const body = await c.req.json<{ aprueba: boolean }>();
 
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const now = ahoraEnUtc();
 
     await db
       .prepare(
@@ -909,13 +932,13 @@ hunt.post(
       return c.json({ error: "Comercio no encontrado" }, 404);
     }
 
-    const fechaFinEvento = new Date(evento.fecha_fin);
-    const expiraEn = new Date(
-      fechaFinEvento.getTime() + 7 * 24 * 60 * 60 * 1000
-    )
-      .toISOString()
-      .replace("T", " ")
-      .slice(0, 19);
+    // Si el fin del evento no se puede leer no se inventa una caducidad: se
+    // deja que el cupon expire segun su propia regla.
+    const finEvento = instanteDeCompra(evento.fecha_fin);
+    const expiraEn =
+      finEvento === null
+        ? ahoraEnUtc()
+        : instanteEnTextoUtc(finEvento + 7 * 24 * 60 * 60 * 1000);
 
     const cuponesCreados: number[] = [];
 

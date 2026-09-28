@@ -210,3 +210,34 @@ export function diaComoCalendario(
 export function esFechaLegible(valor: string | null | undefined): boolean {
   return diaComoCalendario(valor) !== null;
 }
+
+/**
+ * Da formato a un instante como lo guarda la base de datos: UTC, sin T ni
+ * milisegundos. Es el mismo formato que usa `datetime('now')`.
+ */
+export function instanteEnTextoUtc(milisegundos: number): string {
+  return new Date(milisegundos).toISOString().replace("T", " ").slice(0, 19);
+}
+
+/** El momento actual, en ese mismo formato. */
+export function ahoraEnUtc(): string {
+  return instanteEnTextoUtc(Date.now());
+}
+
+/**
+ * Si un instante cae dentro de una ventana.
+ *
+ * Devuelve false si no se puede leer alguna de las dos fechas, porque no se
+ * puede afirmar que algo esta dentro de una ventana que no se conoce. Quien
+ * reciba ese false decide si lo trata como error o como "aun no empieza".
+ */
+export function instanteEnVentana(
+  instante: number | null,
+  desde: string | null | undefined,
+  hasta: string | null | undefined
+): boolean {
+  const inicio = instanteDeCompra(desde);
+  const fin = instanteDeCompra(hasta);
+  if (instante === null || inicio === null || fin === null) return false;
+  return instante >= inicio && instante <= fin;
+}
