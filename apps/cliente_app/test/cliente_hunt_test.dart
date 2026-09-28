@@ -388,4 +388,207 @@ void main() {
       expect(find.text('Premio sin stock disponible'), findsOneWidget);
     });
   });
+
+  group('HuntScreen cliente - progreso de premios por frecuencia', () {
+    String bodyDetalleConFrecuencia() {
+      return '{"evento": {"id": 1, "organizador_id": 7, '
+          '"nombre": "Hunt Nocturno", '
+          '"fecha_inicio": "${_fechaActivaInicio()}", '
+          '"fecha_fin": "${_fechaActivaFin()}", '
+          '"requiere_entrada": 0, '
+          '"organizador_nombre": "Casa Hunt"}, '
+          '"premios": [{"id": 7, "evento_id": 1, '
+          '"nombre": "Combo del mes", "stock": 10, '
+          '"tipo": "frecuencia", "criterio_frecuencia": 5, "entregados": 0}], '
+          '"rondas": [], "sponsors": []}';
+    }
+
+    String bodyProgreso({
+      int compras = 2,
+      int criterio = 5,
+      bool cumple = false,
+      int sinFechaLegible = 0,
+    }) {
+      return '{"premio_id": 7, "nombre": "Combo del mes", '
+          '"compras": $compras, "criterio": $criterio, '
+          '"faltan": ${criterio - compras}, '
+          '"cumple": $cumple, '
+          '"ventana": "evento (2026-09-01 08:00:00 a 2026-09-30 20:00:00)", '
+          '"sin_fecha_legible": $sinFechaLegible}';
+    }
+
+    /// Monta la pantalla con un evento que tiene un premio por frecuencia y
+    /// deja que responderProgresso decida que contesta el backend al pedir el
+    /// progreso.
+    Future<List<String>> irAlDetalleConFrecuencia(
+      WidgetTester tester,
+      http.Response Function(String ruta) responderProgresso,
+    ) async {
+      final rutasProgreso = <String>[];
+
+      final mock = MockClient((request) async {
+        final ruta = request.url.path;
+        if (ruta == '/hunt/eventos') {
+          return http.Response(
+            _bodyListaEventos(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (ruta.endsWith('/progreso')) {
+          rutasProgreso.add(ruta);
+          return responderProgresso(ruta);
+        }
+        return http.Response(
+          bodyDetalleConFrecuencia(),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HuntScreen(
+            servicio: _servicioHuntCon(mock),
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hunt Nocturno'));
+      await tester.pumpAndSettle();
+
+      return rutasProgreso;
+    }
+
+    FilledButton botonReclamar(WidgetTester tester) {
+      return tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Reclamar'),
+      );
+    }
+
+    testWidgets('muestra cuantas compras faltan y bloquea el reclamo',
+        (WidgetTester tester) async {
+      final rutas = await irAlDetalleConFrecuencia(
+        tester,
+        (_) => http.Response(
+          bodyProgreso(),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      expect(rutas, ['/hunt/eventos/1/premios/7/progreso']);
+      expect(find.text('Llevas 2 de 5 compras'), findsOneWidget);
+      expect(
+        find.text(
+            'Cuentan compras de: evento (2026-09-01 08:00:00 a 2026-09-30 20:00:00)'),
+        findsOneWidget,
+      );
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      // Todavia no cumple, asi que no se puede reclamar todavia.
+      expect(botonReclamar(tester).onPressed, isNull);
+    });
+
+    testWidgets('deja reclamar cuando ya cumple el criterio',
+        (WidgetTester tester) async {
+      await irAlDetalleConFrecuencia(
+        tester,
+        (_) => http.Response(
+          bodyProgreso(compras: 5, cumple: true),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      expect(find.text('Llevas 5 de 5 compras'), findsOneWidget);
+      expect(botonReclamar(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('avisa cuantas facturas quedaron fuera por fecha ilegible',
+        (WidgetTester tester) async {
+      await irAlDetalleConFrecuencia(
+        tester,
+        (_) => http.Response(
+          bodyProgreso(sinFechaLegible: 2),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      expect(
+        find.text(
+            '2 factura(s) no se contaron porque no se pudo leer su fecha.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('si el progreso no se puede cargar, no muestra barra y deja '
+        'reclamar', (WidgetTester tester) async {
+      await irAlDetalleConFrecuencia(
+        tester,
+        (_) => http.Response(
+          '{"error": "Este premio no tiene un criterio de frecuencia '
+          'configurado, asi que no se puede calcular el progreso"}',
+          422,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      // El evento se sigue viendo igual, solo que sin barra.
+      expect(find.text('Combo del mes'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.textContaining('Llevas'), findsNothing);
+
+      // Y se puede reclamar: el backend valida al reclamar.
+      expect(botonReclamar(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('no pregunta el progreso de los premios que no son por '
+        'frecuencia', (WidgetTester tester) async {
+      final rutas = <String>[];
+
+      final mock = MockClient((request) async {
+        final ruta = request.url.path;
+        if (ruta == '/hunt/eventos') {
+          return http.Response(
+            _bodyListaEventos(),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (ruta.endsWith('/progreso')) {
+          rutas.add(ruta);
+          return http.Response(bodyProgreso(), 200,
+              headers: {'content-type': 'application/json'});
+        }
+        return http.Response(
+          _bodyDetalleEvento(),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HuntScreen(
+            servicio: _servicioHuntCon(mock),
+            auth: _FakeAuth(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hunt Nocturno'));
+      await tester.pumpAndSettle();
+
+      // El premio de prueba es de tipo principal: no se le pregunta nada y se
+      // sigue viendo igual que antes.
+      expect(rutas, isEmpty);
+      expect(find.text('Premio Mayor'), findsOneWidget);
+      expect(find.text('Stock: 2/3'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(botonReclamar(tester).onPressed, isNotNull);
+    });
+  });
 }

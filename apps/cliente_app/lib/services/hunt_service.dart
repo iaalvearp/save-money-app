@@ -139,6 +139,55 @@ class Premio {
   int get stockDisponible => stock - (entregados ?? 0);
 }
 
+/// Cuantas compras lleva la persona para un premio por frecuencia, y si ya
+/// puede reclamarlo.
+///
+/// `ventana` llega como texto ya armado desde el backend, porque la ventana
+/// depende de si el premio pertenece a una ronda o al evento entero, y el texto
+/// dice cual de las dos es. `sinFechaLegible` son las facturas que existen pero
+/// no se pudo saber cuando se hicieron, y por eso no cuentan.
+class ProgresoFrecuencia {
+  final int premioId;
+  final String nombre;
+  final int compras;
+  final int criterio;
+  final int faltan;
+  final bool cumple;
+  final String ventana;
+  final int sinFechaLegible;
+
+  ProgresoFrecuencia({
+    required this.premioId,
+    required this.nombre,
+    required this.compras,
+    required this.criterio,
+    required this.faltan,
+    required this.cumple,
+    required this.ventana,
+    required this.sinFechaLegible,
+  });
+
+  factory ProgresoFrecuencia.fromJson(Map<String, dynamic> json) {
+    return ProgresoFrecuencia(
+      premioId: json['premio_id'] as int,
+      nombre: json['nombre'] as String? ?? '',
+      compras: json['compras'] as int? ?? 0,
+      criterio: json['criterio'] as int? ?? 0,
+      faltan: json['faltan'] as int? ?? 0,
+      cumple: json['cumple'] == true,
+      ventana: json['ventana'] as String? ?? '',
+      sinFechaLegible: json['sin_fecha_legible'] as int? ?? 0,
+    );
+  }
+
+  /// Progreso de 0 a 1 para la barra. Si el criterio no es utilizable, la barra
+  /// se queda vacia en vez de dividir entre cero.
+  double get fraccion {
+    if (criterio <= 0) return 0;
+    return (compras / criterio).clamp(0.0, 1.0);
+  }
+}
+
 class Entrada {
   final int id;
   final int eventoId;
@@ -437,6 +486,22 @@ class HuntService {
       },
       token: token,
     );
+  }
+
+  /// Pregunta cuanto falta para un premio por frecuencia.
+  ///
+  /// No necesita entrada ni que el evento este abierto: es solo informacion.
+  /// Si el backend no puede calcularlo, lanza; quien llama decide que hacer con
+  /// ese error, y lo normal es no mostrar progreso en vez de inventar un cero.
+  Future<ProgresoFrecuencia> progresoFrecuencia(    int eventoId,
+    int premioId, {
+    String? token,
+  }) async {
+    final response = await _api.get(
+      '/hunt/eventos/$eventoId/premios/$premioId/progreso',
+      token: token,
+    );
+    return ProgresoFrecuencia.fromJson(response);
   }
 
   Future<List<GanadorPremio>> ganadoresDePremio(

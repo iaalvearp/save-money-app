@@ -264,6 +264,15 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
   List<Ronda> _rondas = [];
   List<Premio> _premios = [];
   List<dynamic> _sponsors = [];
+
+  /// Progreso de los premios por frecuencia, por id de premio.
+  ///
+  /// Solo entra lo que se pudo traer. Si la consulta falla, el id no aparece
+  /// aqui, y el premio se dibuja sin barra y con el boton activo: es peor no
+  /// avisar que dejar a alguien esperando, y el backend sigue validando al
+  /// reclamar, que es lo unico que decide.
+  Map<int, ProgresoFrecuencia> _progresos = {};
+
   Entrada? _miEntrada;
   bool _comprando = false;
   bool _loading = true;
@@ -300,6 +309,8 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         _sponsors = response['sponsors'] as List<dynamic>? ?? [];
         _loading = false;
       });
+
+      await _cargarProgresos(token);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -307,6 +318,44 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
         _loading = false;
       });
     }
+  }
+
+  /// Pregunta el progreso de cada premio por frecuencia.
+  ///
+  /// Va aparte de la carga del evento porque es informacion extra: si falla, el
+  /// evento ya esta en pantalla y se sigue pudiendo usar, solo que sin barra de
+  /// progreso. Se consultan todos a la vez y cada uno por separado, porque un
+  /// premio sin ventana legible responde 422 y ese error no debe arrastrar a
+  /// los demas.
+  Future<void> _cargarProgresos(String? token) async {
+    final deFrecuencia =
+        _premios.where((p) => p.tipo == 'frecuencia').toList();
+    if (deFrecuencia.isEmpty) return;
+
+    final pedidos = deFrecuencia.map((premio) async {
+      try {
+        final progreso = await _huntService.progresoFrecuencia(
+          widget.eventoId,
+          premio.id,
+          token: token,
+        );
+        return MapEntry(premio.id, progreso);
+      } catch (e) {
+        // Sin barra y con el boton activo. Se ignora el motivo a proposito: la
+        // persona no puede hacer nada con el.
+        return MapEntry(premio.id, null);
+      }
+    });
+
+    final resultados = await Future.wait(pedidos);
+    if (!mounted) return;
+
+    setState(() {
+      _progresos = {
+        for (final r in resultados)
+          if (r.value != null) r.key: r.value!,
+      };
+    });
   }
 
   @override
@@ -354,15 +403,20 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
             const Text('Premios', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             for (final p in _premios)
-              ListTile(
-                leading: Icon(
-                  p.tipo == 'principal' ? Icons.emoji_events : Icons.card_giftcard,
-                  color: p.tipo == 'principal' ? Colors.amber : Colors.grey,
+              if (p.tipo == 'frecuencia')
+                _buildPremioConFrecuencia(p, evento)
+              else
+                ListTile(
+                  leading: Icon(
+                    p.tipo == 'principal'
+                        ? Icons.emoji_events
+                        : Icons.card_giftcard,
+                    color: p.tipo == 'principal' ? Colors.amber : Colors.grey,
+                  ),
+                  title: Text(p.nombre),
+                  subtitle: Text('Stock: ${p.stockDisponible}/${p.stock}'),
+                  trailing: _buildReclamar(p, evento),
                 ),
-                title: Text(p.nombre),
-                subtitle: Text('Stock: ${p.stockDisponible}/${p.stock}'),
-                trailing: _buildReclamar(p, evento),
-              ),
             const SizedBox(height: 16),
           ],
           if (_sponsors.isNotEmpty) ...[
@@ -388,13 +442,91 @@ class _EventoDetalleScreenState extends State<_EventoDetalleScreen> {
     );
   }
 
+  /// Un premio por frecuencia, con la barra de progreso.
+  ///
+  /// Los premios de otros tipos siguen igual. Este lleva su propio diseno
+  /// porque necesita mas texto del que cabe en el subtitulo de un ListTile.
+  Widget _buildPremioConFrecuencia(Premio premio, Evento evento) {
+    final progreso = _progresos[premio.id];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.card_giftcard, color: Colors.grey),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(premio.nombre),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Stock: ${premio.stockDisponible}/${premio.stock}',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                _buildReclamar(premio, evento),
+              ],
+            ),
+            if (progreso != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Llevas ${progreso.compras} de ${progreso.criterio} compras',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progreso.fraccion,
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Cuentan compras de: ${progreso.ventana}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              if (progreso.sinFechaLegible > 0) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '${progreso.sinFechaLegible} factura(s) no se contaron porque '
+                  'no se pudo leer su fecha.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildReclamar(Premio premio, Evento evento) {
     if (!evento.estaActivo || premio.stockDisponible <= 0) {
       return Text(premio.tipo,
           style: TextStyle(fontSize: 12, color: Colors.grey[600]));
     }
+
+    // El boton se desactiva solo cuando ya sabemos que no cumple. Mientras se
+    // carga, o si la carga fallo, se deja activo: el backend vuelve a validar
+    // al reclamar, asi que dejarlo activo no regala nada.
+    final progreso = _progresos[premio.id];
+    final bloqueado = progreso != null && !progreso.cumple;
+
     return FilledButton.tonal(
-      onPressed: () => _reclamarPremio(evento, premio),
+      onPressed: bloqueado ? null : () => _reclamarPremio(evento, premio),
       child: const Text('Reclamar'),
     );
   }
