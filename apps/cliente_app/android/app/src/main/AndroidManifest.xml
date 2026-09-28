@@ -49,5 +49,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+
+        <!-- Necesario para abrir Google Maps: desde Android 11 el sistema
+             esconde las demas apps, asi que sin declararlo aqui la app de
+             mapas no aparece entre las que pueden abrir un enlace https. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

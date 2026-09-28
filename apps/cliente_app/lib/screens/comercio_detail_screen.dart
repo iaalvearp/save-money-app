@@ -2,19 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/comercios_service.dart';
+import '../widgets/dialogo_error.dart';
 import 'facturacion_screen.dart';
+
+/// Cómo se abre un enlace. Permite sustituirlo en las pruebas, porque abrir
+/// enlaces no se puede simular con el canal del plugin.
+typedef AbrirUrl = Future<bool> Function(Uri url, LaunchMode modo);
 
 class ComercioDetailScreen extends StatefulWidget {
   final int comercioId;
 
-  const ComercioDetailScreen({super.key, required this.comercioId});
+  /// Inyecta el servicio de comercios en vez de crear uno. Solo se usa en
+  /// pruebas.
+  final ComerciosService? servicio;
+
+  /// Sustituye a `launchUrl`. Solo se usa en pruebas.
+  final AbrirUrl? abrirUrl;
+
+  const ComercioDetailScreen({
+    super.key,
+    required this.comercioId,
+    this.servicio,
+    this.abrirUrl,
+  });
 
   @override
   State<ComercioDetailScreen> createState() => _ComercioDetailScreenState();
 }
 
 class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
-  final _comerciosService = ComerciosService();
+  late final ComerciosService _comerciosService;
   Comercio? _comercio;
   List<Promocion> _promociones = [];
   bool _loading = true;
@@ -23,6 +40,7 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _comerciosService = widget.servicio ?? ComerciosService();
     _cargarComercio();
   }
 
@@ -385,12 +403,26 @@ class _ComercioDetailScreenState extends State<ComercioDetailScreen> {
     final lng = comercio.longitud;
     if (lat == null || lng == null) return;
 
+    // Dirección, no búsqueda: el objetivo es llegar, no ver el pin.
     final url = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng',
     );
 
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
+    // No se pregunta antes con canLaunchUrl. En Android 11 y superiores esa
+    // pregunta responde false salvo que cada app declare su intent en el
+    // manifiesto, y como el mapa lo tiene cualquiera, la respuesta era siempre
+    // "no" y el boton no hacia nada. Se intenta abrir y se mira si funciono.
+    final abrir = widget.abrirUrl ??
+        ((destino, modo) => launchUrl(destino, mode: modo));
+    final abierto = await abrir(url, LaunchMode.externalApplication);
+
+    if (!abierto) {
+      if (!mounted) return;
+      await mostrarErrorDialog(
+        context,
+        titulo: 'No se pudo abrir el mapa',
+        mensaje: 'No se encontró una app de mapas',
+      );
     }
   }
 
