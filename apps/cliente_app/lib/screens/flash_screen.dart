@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../services/flash_service.dart';
+import '../services/permiso_ubicacion_service.dart';
 
 class FlashScreen extends StatefulWidget {
-  const FlashScreen({super.key});
+  /// Inyecta el permiso de ubicación en vez de consultar el sistema. Solo se
+  /// usa en pruebas.
+  final Future<ResultadoUbicacion> Function()? permisoUbicacion;
+
+  const FlashScreen({super.key, this.permisoUbicacion});
 
   @override
   State<FlashScreen> createState() => _FlashScreenState();
@@ -15,6 +20,7 @@ class _FlashScreenState extends State<FlashScreen> {
   List<PromocionFlash> _promociones = [];
   bool _loading = true;
   String? _error;
+  ResultadoUbicacion _estadoPermiso = ResultadoUbicacion.ok;
 
   @override
   void initState() {
@@ -29,6 +35,20 @@ class _FlashScreenState extends State<FlashScreen> {
     });
 
     try {
+      // Se pide el permiso aquí, justo antes de necesitar la posición, en vez
+      // de asumir que otra pantalla ya lo solicitó.
+      final permiso = await _pedirPermisoUbicacion();
+      if (!mounted) return;
+      if (permiso != ResultadoUbicacion.ok &&
+          permiso != ResultadoUbicacion.sinPosicion) {
+        setState(() {
+          _estadoPermiso = permiso;
+          _promociones = [];
+          _loading = false;
+        });
+        return;
+      }
+
       Position? pos;
       try {
         pos = await Geolocator.getCurrentPosition(
@@ -49,6 +69,7 @@ class _FlashScreenState extends State<FlashScreen> {
       if (!mounted) return;
       setState(() {
         _promociones = promos;
+        _estadoPermiso = ResultadoUbicacion.ok;
         _loading = false;
       });
     } catch (e) {
@@ -58,6 +79,10 @@ class _FlashScreenState extends State<FlashScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<ResultadoUbicacion> _pedirPermisoUbicacion() async {
+    return widget.permisoUbicacion?.call() ?? solicitarPermisoUbicacion();
   }
 
   @override
@@ -76,9 +101,44 @@ class _FlashScreenState extends State<FlashScreen> {
     );
   }
 
+  Widget _buildAvisoPermiso() {
+    final permanente = _estadoPermiso == ResultadoUbicacion.denegadoPermanente;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.location_off, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              permanente
+                  ? 'Tu permiso de ubicación está denegado para siempre. '
+                      'Habilítelo desde la configuración del dispositivo.'
+                  : 'Activa tu ubicación para ver promociones cercanas',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: permanente
+                  ? () => abrirConfiguracionUbicacion()
+                  : _cargar,
+              child: Text(permanente ? 'Abrir configuración' : 'Reintentar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_estadoPermiso == ResultadoUbicacion.denegado ||
+        _estadoPermiso == ResultadoUbicacion.denegadoPermanente) {
+      return _buildAvisoPermiso();
     }
 
     if (_error != null) {
