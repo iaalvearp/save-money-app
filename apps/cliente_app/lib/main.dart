@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
-import 'services/notificaciones_service.dart';
 import 'services/theme_service.dart';
 import 'widgets/reporte_ubicacion.dart';
 
@@ -69,8 +66,10 @@ class _SessionGateState extends State<SessionGate> {
     final auth = AuthService();
     final hasSession = await auth.hasSession();
     if (!hasSession) return const LoginScreen();
-    unawaited(NotificacionesService(auth: auth).registrarToken());
     // TODO: implementar refresh automático del access token vencido
+    // El aviso de notificaciones, y con él el registro del token FCM, va
+    // dentro de pantallaInicialPorRol: así también ocurre tras un login en
+    // caliente, que aquí no pasa por este código.
     final rol = await auth.rolActual();
     return pantallaInicialPorRol(rol);
   }
