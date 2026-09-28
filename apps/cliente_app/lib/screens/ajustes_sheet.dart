@@ -33,17 +33,13 @@ Future<void> abrirAjustes(
                 SwitchListTile(
                   key: const Key('ajustes-tema-oscuro'),
                   secondary: Icon(
-                    themeService.modo == ThemeMode.dark
-                        ? Icons.dark_mode
-                        : Icons.light_mode,
+                    themeService.esOscuro ? Icons.dark_mode : Icons.light_mode,
                   ),
                   title: const Text('Tema oscuro'),
-                  subtitle: Text(_descripcionModo(themeService.modo)),
-                  value: themeService.modo == ThemeMode.dark,
-                  onChanged: (oscuro) {
-                    themeService.setModo(
-                      oscuro ? ThemeMode.dark : ThemeMode.light,
-                    );
+                  // Sin subtitulo: no hay una tercera opcion que describir.
+                  value: themeService.esOscuro,
+                  onChanged: (_) {
+                    themeService.alternar();
                   },
                 ),
                 const Divider(height: 1),
@@ -63,15 +59,4 @@ Future<void> abrirAjustes(
       );
     },
   );
-}
-
-String _descripcionModo(ThemeMode modo) {
-  switch (modo) {
-    case ThemeMode.light:
-      return 'Siempre claro';
-    case ThemeMode.dark:
-      return 'Siempre oscuro';
-    case ThemeMode.system:
-      return 'Según el sistema';
-  }
 }
