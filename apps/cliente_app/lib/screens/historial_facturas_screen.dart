@@ -2,9 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/facturas_service.dart';
+import 'factura_detalle_screen.dart';
 
 class HistorialFacturasScreen extends StatefulWidget {
-  const HistorialFacturasScreen({super.key});
+  /// Inyecta el servicio de facturas en vez de crear uno. Solo se usa en
+  /// pruebas.
+  final FacturasService? servicio;
+
+  /// Inyecta la sesión en vez de leer el almacenamiento seguro. Solo se usa en
+  /// pruebas.
+  final AuthService? auth;
+
+  const HistorialFacturasScreen({super.key, this.servicio, this.auth});
 
   @override
   State<HistorialFacturasScreen> createState() =>
@@ -12,8 +21,8 @@ class HistorialFacturasScreen extends StatefulWidget {
 }
 
 class _HistorialFacturasScreenState extends State<HistorialFacturasScreen> {
-  final _facturasService = FacturasService();
-  final _authService = AuthService();
+  late final FacturasService _facturasService;
+  late final AuthService _authService;
   List<Factura> _facturas = [];
   bool _loading = true;
   String? _error;
@@ -21,6 +30,8 @@ class _HistorialFacturasScreenState extends State<HistorialFacturasScreen> {
   @override
   void initState() {
     super.initState();
+    _facturasService = widget.servicio ?? FacturasService();
+    _authService = widget.auth ?? AuthService();
     _cargarFacturas();
   }
 
@@ -109,17 +120,29 @@ class _HistorialFacturasScreenState extends State<HistorialFacturasScreen> {
         itemCount: _facturas.length,
         itemBuilder: (context, index) {
           final factura = _facturas[index];
-          return _FacturaTile(factura: factura);
+          return _FacturaTile(
+            factura: factura,
+            onTap: () => _abrirDetalle(factura),
+          );
         },
       ),
+    );
+  }
+
+  void _abrirDetalle(Factura factura) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => FacturaDetalleSheet(factura: factura),
     );
   }
 }
 
 class _FacturaTile extends StatelessWidget {
   final Factura factura;
+  final VoidCallback onTap;
 
-  const _FacturaTile({required this.factura});
+  const _FacturaTile({required this.factura, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +151,7 @@ class _FacturaTile extends StatelessWidget {
       title: _buildTitle(),
       subtitle: _buildSubtitle(),
       trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
     );
   }
 

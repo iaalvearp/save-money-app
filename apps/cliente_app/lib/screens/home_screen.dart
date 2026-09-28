@@ -12,7 +12,6 @@ import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
-import 'historial_facturas_screen.dart';
 import 'hunt_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -235,17 +234,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const HuntScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.receipt_long),
-            tooltip: 'Mis facturas',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const HistorialFacturasScreen(),
-                ),
               );
             },
           ),

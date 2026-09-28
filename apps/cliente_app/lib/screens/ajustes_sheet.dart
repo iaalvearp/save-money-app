@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
+import 'historial_facturas_screen.dart';
 import 'logout.dart';
 
 Future<void> abrirAjustes(
@@ -40,6 +41,21 @@ Future<void> abrirAjustes(
                   value: themeService.esOscuro,
                   onChanged: (_) {
                     themeService.alternar();
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  key: const Key('ajustes-mis-facturas'),
+                  leading: const Icon(Icons.receipt_long),
+                  title: const Text('Mis facturas'),
+                  subtitle: const Text('Consulta el estado de tus facturas'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const HistorialFacturasScreen(),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1),
