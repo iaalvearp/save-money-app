@@ -62,7 +62,7 @@ INSERT INTO comercios
   (usuario_id, nombre, categoria, ruc, latitud, longitud,
    es_patrocinado, horario, hora_apertura, hora_cierre)
 SELECT
-  u.id, 'PRUEBA Café Central', 'Cafetería', '0999999999001',
+  u.id, 'PRUEBA Café Central', 'Cafetería', '0991234561001',
   -2.1894, -79.8891, 0, 'Todos los días 00:00 - 23:59', '00:00', '23:59'
 FROM usuarios u
 WHERE u.email = 'negocio@test.com'
@@ -73,7 +73,7 @@ WHERE u.email = 'negocio@test.com'
 UPDATE comercios
 SET nombre        = 'PRUEBA Café Central',
     categoria     = 'Cafetería',
-    ruc           = '0999999999001',
+    ruc           = '0991234561001',
     latitud       = -2.1894,
     longitud      = -79.8891,
     es_patrocinado = 0,

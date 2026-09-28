@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
+import { motivoRucInvalido, motivoHorarioInvalido } from "../../lib/ruc";
 
 interface AppEnv {
   Bindings: {
@@ -231,6 +232,28 @@ discover.put(
       }
     }
 
+    // Al editar puede venir solo una de las dos horas, así que el cierre se
+    // compara contra la apertura que quede guardada.
+    const horarioActual = await db
+      .prepare("SELECT hora_apertura, hora_cierre FROM comercios WHERE id = ?")
+      .bind(id)
+      .first<{ hora_apertura: string | null; hora_cierre: string | null }>();
+
+    const aperturaFinal =
+      body.hora_apertura !== undefined ? body.hora_apertura : horarioActual?.hora_apertura;
+    const cierreFinal =
+      body.hora_cierre !== undefined ? body.hora_cierre : horarioActual?.hora_cierre;
+
+    const problemaHorario = motivoHorarioInvalido(aperturaFinal, cierreFinal);
+    if (problemaHorario) {
+      return c.json({ error: problemaHorario }, 400);
+    }
+
+    const problemaRuc = motivoRucInvalido(body.ruc);
+    if (problemaRuc) {
+      return c.json({ error: problemaRuc }, 400);
+    }
+
     const fields: string[] = [];
     const values: unknown[] = [];
 
@@ -331,6 +354,19 @@ discover.post(
       if (!/^\d{2}:\d{2}$/.test(body.hora_cierre)) {
         return c.json({ error: "hora_cierre debe tener formato HH:MM" }, 400);
       }
+    }
+
+    const problemaHorario = motivoHorarioInvalido(
+      body.hora_apertura,
+      body.hora_cierre
+    );
+    if (problemaHorario) {
+      return c.json({ error: problemaHorario }, 400);
+    }
+
+    const problemaRuc = motivoRucInvalido(body.ruc);
+    if (problemaRuc) {
+      return c.json({ error: problemaRuc }, 400);
     }
 
     const result = await db

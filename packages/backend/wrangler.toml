@@ -8,4 +8,4 @@ database_name = "save-money-db"
 database_id = "71848fbe-84fe-4486-8e40-890e510e6f8d"
 
 [vars]
-SRI_ENFORCE_VALIDATION = "false"
+SRI_ENFORCE_VALIDATION = "true"
