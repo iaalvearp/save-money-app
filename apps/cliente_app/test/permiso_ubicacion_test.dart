@@ -1,14 +1,19 @@
 import 'package:cliente_app/screens/flash_screen.dart';
+import 'package:cliente_app/services/api_client.dart';
+import 'package:cliente_app/services/flash_service.dart';
 import 'package:cliente_app/services/notificaciones_service.dart';
 import 'package:cliente_app/services/permiso_ubicacion_service.dart';
 import 'package:cliente_app/widgets/reporte_ubicacion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   group('Flash pide su propio permiso de ubicación', () {
-    testWidgets('un permiso denegado muestra el mensaje de activarlo', (tester) async {
+    testWidgets('un permiso denegado avisa y ofrece activar la ubicación',
+        (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: FlashScreen(
@@ -19,12 +24,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Activa tu ubicación para ver promociones cercanas'),
+        find.text('Necesitamos tu ubicación para mostrarte lo que hay cerca'),
         findsOneWidget,
       );
+      expect(find.text('Activar ubicación'), findsOneWidget);
     });
 
-    testWidgets('un permiso denegado para siempre ofrece abrir la configuración', (tester) async {
+    testWidgets('un permiso denegado para siempre ofrece abrir la configuración',
+        (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: FlashScreen(
@@ -35,28 +42,33 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Abrir configuración'), findsOneWidget);
-      expect(find.text('Activa tu ubicación para ver promociones cercanas'),
-          findsNothing);
+      expect(find.text('Activar ubicación'), findsNothing);
     });
 
-    testWidgets('con permiso concedido no se muestra ningún aviso', (tester) async {
+    testWidgets('con permiso concedido no se muestra ningún aviso',
+        (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
           home: FlashScreen(
             permisoUbicacion: _conceder,
+            leerPosicion: _posicion,
+            servicio: _flashVacia(),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
       expect(find.text('Abrir configuración'), findsNothing);
+      expect(find.text('Activar ubicación'), findsNothing);
+      expect(find.text('Encender GPS'), findsNothing);
       expect(
-        find.text('Activa tu ubicación para ver promociones cercanas'),
+        find.text('Necesitamos tu ubicación para mostrarte lo que hay cerca'),
         findsNothing,
       );
     });
 
-    testWidgets('volver a pulsar reintentar vuelve a pedir el permiso', (tester) async {
+    testWidgets('volver a pulsar el botón vuelve a pedir el permiso',
+        (tester) async {
       var llamadas = 0;
       await tester.pumpWidget(
         MaterialApp(
@@ -71,7 +83,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(llamadas, 1);
 
-      await tester.tap(find.text('Reintentar'));
+      await tester.tap(find.text('Activar ubicación'));
       await tester.pumpAndSettle();
 
       expect(llamadas, 2);
@@ -148,6 +160,32 @@ void main() {
     });
   });
 }
+
+Future<Position> _posicion() async => Position(
+      latitude: -0.1807,
+      longitude: -78.4678,
+      timestamp: DateTime.now(),
+      accuracy: 0,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+
+FlashService _flashVacia() => FlashService(
+      api: ApiClient(
+        baseUrl: 'http://test',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            '{"promociones": []}',
+            200,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      ),
+    );
 
 Future<ResultadoUbicacion> _conceder() async => ResultadoUbicacion.ok;
 Future<ResultadoUbicacion> _denegar() async => ResultadoUbicacion.denegado;

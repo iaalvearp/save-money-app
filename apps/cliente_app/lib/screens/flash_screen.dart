@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import '../services/api_client.dart';
 import '../services/flash_service.dart';
 import '../services/permiso_ubicacion_service.dart';
+import '../widgets/aviso_ubicacion.dart';
 import '../widgets/dialogo_error.dart';
 
 class FlashScreen extends StatefulWidget {
@@ -11,14 +12,31 @@ class FlashScreen extends StatefulWidget {
   /// usa en pruebas.
   final Future<ResultadoUbicacion> Function()? permisoUbicacion;
 
-  const FlashScreen({super.key, this.permisoUbicacion});
+  /// Inyecta la lectura de la posición. Solo se usa en pruebas.
+  final Future<Position> Function()? leerPosicion;
+
+  /// Inyecta el servicio de promociones. Solo se usa en pruebas.
+  final FlashService? servicio;
+
+  /// Inyecta la apertura de los ajustes. Solo se usa en pruebas.
+  final Future<void> Function()? abrirConfiguracion;
+  final Future<void> Function()? abrirGps;
+
+  const FlashScreen({
+    super.key,
+    this.permisoUbicacion,
+    this.leerPosicion,
+    this.servicio,
+    this.abrirConfiguracion,
+    this.abrirGps,
+  });
 
   @override
   State<FlashScreen> createState() => _FlashScreenState();
 }
 
 class _FlashScreenState extends State<FlashScreen> {
-  final _flashService = FlashService();
+  late final FlashService _flashService;
   List<PromocionFlash> _promociones = [];
   bool _loading = true;
   String? _error;
@@ -27,6 +45,7 @@ class _FlashScreenState extends State<FlashScreen> {
   @override
   void initState() {
     super.initState();
+    _flashService = widget.servicio ?? FlashService();
     _cargar();
   }
 
@@ -41,8 +60,12 @@ class _FlashScreenState extends State<FlashScreen> {
       // de asumir que otra pantalla ya lo solicitó.
       final permiso = await _pedirPermisoUbicacion();
       if (!mounted) return;
-      if (permiso != ResultadoUbicacion.ok &&
-          permiso != ResultadoUbicacion.sinPosicion) {
+
+      if (permiso != ResultadoUbicacion.ok) {
+        // Con el GPS apagado pasa lo mismo que con el permiso denegado: sin
+        // posición no se puede ordenar nada por cercanía, y antes se llamaba
+        // igual a la lista, que devolvía todas las promociones del sitio
+        // como si fueran las de al lado.
         setState(() {
           _estadoPermiso = permiso;
           _promociones = [];
@@ -53,19 +76,22 @@ class _FlashScreenState extends State<FlashScreen> {
 
       Position? pos;
       try {
-        pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 5),
-          ),
-        );
+        pos = await _leerPosicionActual();
       } catch (_) {}
 
       if (!mounted) return;
+      if (pos == null) {
+        setState(() {
+          _estadoPermiso = ResultadoUbicacion.sinPosicion;
+          _promociones = [];
+          _loading = false;
+        });
+        return;
+      }
 
       final promos = await _flashService.listarPromociones(
-        lat: pos?.latitude,
-        lng: pos?.longitude,
+        lat: pos.latitude,
+        lng: pos.longitude,
       );
 
       if (!mounted) return;
@@ -87,6 +113,26 @@ class _FlashScreenState extends State<FlashScreen> {
     return widget.permisoUbicacion?.call() ?? solicitarPermisoUbicacion();
   }
 
+  Future<Position> _leerPosicionActual() {
+    return widget.leerPosicion?.call() ??
+        Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 5),
+          ),
+        );
+  }
+
+  Future<void> _abrirConfiguracion() async {
+    await (widget.abrirConfiguracion ?? abrirConfiguracionUbicacion)();
+    await _cargar();
+  }
+
+  Future<void> _encenderGps() async {
+    await (widget.abrirGps ?? abrirConfiguracionGps)();
+    await _cargar();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,46 +149,66 @@ class _FlashScreenState extends State<FlashScreen> {
     );
   }
 
-  Widget _buildAvisoPermiso() {
-    final permanente = _estadoPermiso == ResultadoUbicacion.denegadoPermanente;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.location_off, size: 48, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              permanente
-                  ? 'Tu permiso de ubicación está denegado para siempre. '
-                      'Habilítelo desde la configuración del dispositivo.'
-                  : 'Activa tu ubicación para ver promociones cercanas',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: permanente
-                  ? () => abrirConfiguracionUbicacion()
-                  : _cargar,
-              child: Text(permanente ? 'Abrir configuración' : 'Reintentar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_estadoPermiso == ResultadoUbicacion.denegado ||
-        _estadoPermiso == ResultadoUbicacion.denegadoPermanente) {
-      return _buildAvisoPermiso();
+    // El aviso va FUERA de la lista a proposito. Antes sustituania a la
+    // pantalla entera, asi que en cuanto habia promociones se perdia, y
+    // tampoco se veía cuando la lista venia vacia.
+    final estado = _estadoPermiso;
+    final faltaUbicacion = estado != ResultadoUbicacion.ok;
+    final aviso = faltaUbicacion
+        ? AvisoUbicacion(
+            estado: estado,
+            centrado: false,
+            onReintentar: _cargar,
+            onAbrirConfiguracion: _abrirConfiguracion,
+            onEncenderGps: _encenderGps,
+          )
+        : null;
+
+    if (_error != null && !faltaUbicacion) {
+      return Column(
+        children: [
+          ?aviso,
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, size: 48, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _cargar,
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
     }
 
+    return Column(
+      children: [
+        ?aviso,
+        Expanded(child: _buildLista()),
+      ],
+    );
+  }
+
+  Widget _buildLista() {
     if (_error != null) {
       return Center(
         child: Padding(

@@ -50,6 +50,13 @@ Future<ResultadoUbicacion> solicitarPermisoUbicacion() async {
 /// ubicación denegado permanentemente.
 Future<void> abrirConfiguracionUbicacion() => openAppSettings();
 
+/// Abre los ajustes de ubicación del dispositivo, que es donde se enciende el
+/// GPS. Es distinto de los ajustes de la app: con el GPS apagado, el permiso
+/// puede estar concedido y aun así no haya posición.
+Future<void> abrirConfiguracionGps() async {
+  await Geolocator.openLocationSettings();
+}
+
 /// Consulta el permiso de ubicación sin pedirlo.
 ///
 /// Para el reporte periódico, que envuelve la app entera: si el usuario no ha

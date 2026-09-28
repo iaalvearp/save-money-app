@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 
 import '../services/comercios_service.dart';
 import '../services/notificaciones_service.dart';
+import '../services/permiso_ubicacion_service.dart';
+import '../widgets/aviso_ubicacion.dart';
 import '../widgets/dialogo_error.dart';
 import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
@@ -14,14 +16,36 @@ import 'historial_facturas_screen.dart';
 import 'hunt_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  /// Inyecta el servicio de comercios en vez de crear uno. Solo se usa en
+  /// pruebas.
+  final ComerciosService? servicio;
+
+  /// Inyecta el permiso de ubicación en vez de consultar el sistema. Solo se
+  /// usa en pruebas.
+  final Future<ResultadoUbicacion> Function()? permisoUbicacion;
+
+  /// Inyecta la lectura de la posición. Solo se usa en pruebas.
+  final Future<Position> Function()? leerPosicion;
+
+  /// Inyecta la apertura de los ajustes. Solo se usa en pruebas.
+  final Future<void> Function()? abrirConfiguracion;
+  final Future<void> Function()? abrirGps;
+
+  const HomeScreen({
+    super.key,
+    this.servicio,
+    this.permisoUbicacion,
+    this.leerPosicion,
+    this.abrirConfiguracion,
+    this.abrirGps,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final _comerciosService = ComerciosService();
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  late final ComerciosService _comerciosService;
   final _searchController = TextEditingController();
   Timer? _debounce;
 
@@ -34,64 +58,99 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loadingCercanos = false;
   String? _error;
   Position? _ubicacionActual;
-  String? _errorUbicacion;
+
+  /// Estado del permiso de ubicación. Mientras sea `null` no se ha comprobado
+  /// todavía y no se carga nada.
+  ResultadoUbicacion? _estadoUbicacion;
 
   @override
   void initState() {
     super.initState();
-    _cargarComercios();
+    WidgetsBinding.instance.addObserver(this);
+    _comerciosService = widget.servicio ?? ComerciosService();
     _obtenerUbicacion();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState estado) {
+    // Volver de los ajustes o de la pantalla de permiso del sistema es el
+    // momento en que el usuario ya resolvió lo que pedía: se vuelve a
+    // comprobar para que la lista aparezca sin que tenga que reintentar a mano.
+    if (estado == AppLifecycleState.resumed) {
+      _obtenerUbicacion();
+    }
+  }
+
   Future<void> _obtenerUbicacion() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() => _errorUbicacion = 'Servicios de ubicación desactivados');
-        return;
-      }
+    // Sin coordenadas no hay lista. Se averigua primero si hay permiso y
+    // posición, y solo entonces se pregunta al servidor.
+    final estado = await _pedirPermisoUbicacion();
+    if (!mounted) return;
 
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() => _errorUbicacion = 'Permiso de ubicación denegado');
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        setState(
-            () => _errorUbicacion = 'Permiso de ubicación denegado permanentemente');
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-
-      if (!mounted) return;
+    if (estado != ResultadoUbicacion.ok) {
       setState(() {
+        _estadoUbicacion = estado;
+        _ubicacionActual = null;
+        _comercios = [];
+        _cercanos = [];
+        _loading = false;
+      });
+      return;
+    }
+
+    try {
+      final position = await _leerPosicionActual();
+      if (!mounted) return;
+
+      setState(() {
+        _estadoUbicacion = ResultadoUbicacion.ok;
         _ubicacionActual = position;
-        _errorUbicacion = null;
       });
 
-      _cargarCercanos(position.latitude, position.longitude);
-      _cargarComercios(lat: position.latitude, lng: position.longitude);
+      await _cargarCercanos(position.latitude, position.longitude);
+      await _cargarComercios(
+        lat: position.latitude,
+        lng: position.longitude,
+      );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorUbicacion = 'No se pudo obtener la ubicación');
+      setState(() {
+        _estadoUbicacion = ResultadoUbicacion.sinPosicion;
+        _loading = false;
+      });
     }
+  }
+
+  Future<ResultadoUbicacion> _pedirPermisoUbicacion() {
+    return widget.permisoUbicacion?.call() ?? solicitarPermisoUbicacion();
+  }
+
+  Future<Position> _leerPosicionActual() {
+    return widget.leerPosicion?.call() ??
+        Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+  }
+
+  Future<void> _abrirConfiguracion() async {
+    await (widget.abrirConfiguracion ?? abrirConfiguracionUbicacion)();
+    await _obtenerUbicacion();
+  }
+
+  Future<void> _encenderGps() async {
+    await (widget.abrirGps ?? abrirConfiguracionGps)();
+    await _obtenerUbicacion();
   }
 
   Future<void> _cargarCercanos(double lat, double lng) async {
@@ -314,6 +373,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Sin ubicacion no hay ni una lista de comercios. Antes se pedia la lista
+    // igual y se mostraba todo el catalogo, que no es lo que quiere alguien
+    // que entro a ver lo que hay cerca de su casa.
+    final estado = _estadoUbicacion;
+    if (estado != null && estado != ResultadoUbicacion.ok) {
+      return AvisoUbicacion(
+        estado: estado,
+        onReintentar: _obtenerUbicacion,
+        onAbrirConfiguracion: _abrirConfiguracion,
+        onEncenderGps: _encenderGps,
+      );
+    }
+
     if (_error != null) {
       return Center(
         child: Padding(
@@ -330,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () => _cargarComercios(),
+                onPressed: _obtenerUbicacion,
                 child: const Text('Reintentar'),
               ),
             ],
@@ -361,13 +433,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {
-        await _obtenerUbicacion();
-        await _cargarComercios();
-      },
+      onRefresh: _obtenerUbicacion,
       child: ListView(
         children: [
-          if (_errorUbicacion != null) _buildUbicacionBanner(),
           if (_cercanos.isNotEmpty) ...[
             _buildSeccionCercanos(),
             const Divider(height: 1),
@@ -375,29 +443,6 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_comercios.isNotEmpty) ...[
             _buildSeccionDescubiertos(),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUbicacionBanner() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: Colors.orange.shade50,
-      child: Row(
-        children: [
-          Icon(Icons.location_off, size: 20, color: Colors.orange[700]),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _errorUbicacion!,
-              style: TextStyle(fontSize: 13, color: Colors.orange[700]),
-            ),
-          ),
-          TextButton(
-            onPressed: _obtenerUbicacion,
-            child: const Text('Reintentar'),
-          ),
         ],
       ),
     );
