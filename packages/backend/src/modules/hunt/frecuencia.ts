@@ -56,6 +56,28 @@ interface VentanaLeida {
  * forma honesta de saber que compras cuentan: inventar una ventana haria que
  * la gente perdiera o ganara un premio por error.
  */
+async function ventanaDelEvento(
+  db: D1Database,
+  eventoId: number
+): Promise<VentanaLeida | null> {
+  const evento = await db
+    .prepare("SELECT fecha_inicio, fecha_fin FROM eventos WHERE id = ?")
+    .bind(eventoId)
+    .first<{ fecha_inicio: string; fecha_fin: string }>();
+
+  if (!evento) return null;
+
+  const desde = instanteDeCompra(evento.fecha_inicio);
+  const hasta = instanteDeCompra(evento.fecha_fin);
+  if (desde === null || hasta === null) return null;
+
+  return {
+    desde,
+    hasta,
+    etiqueta: `evento (${evento.fecha_inicio} a ${evento.fecha_fin})`,
+  };
+}
+
 async function ventanaDelPremio(
   db: D1Database,
   premio: PremioParaContar
@@ -79,22 +101,7 @@ async function ventanaDelPremio(
     };
   }
 
-  const evento = await db
-    .prepare("SELECT fecha_inicio, fecha_fin FROM eventos WHERE id = ?")
-    .bind(premio.evento_id)
-    .first<{ fecha_inicio: string; fecha_fin: string }>();
-
-  if (!evento) return null;
-
-  const desde = instanteDeCompra(evento.fecha_inicio);
-  const hasta = instanteDeCompra(evento.fecha_fin);
-  if (desde === null || hasta === null) return null;
-
-  return {
-    desde,
-    hasta,
-    etiqueta: `evento (${evento.fecha_inicio} a ${evento.fecha_fin})`,
-  };
+  return ventanaDelEvento(db, premio.evento_id);
 }
 
 /**
@@ -156,6 +163,82 @@ export async function contarComprasQueCuentan(
     criterio,
     cumple: criterio !== null && comprasQueCuentan >= criterio,
     ventana: ventana.etiqueta,
+    sin_fecha_legible: sinFecha,
+  };
+}
+
+/** Quien tiene al menos una compra que cuenta, y con que datos se llego a eso. */
+export interface UsuariosConComprasQueCuentan {
+  /** Ids de los usuarios con una compra o mas que cuentan. */
+  usuarios: Set<number>;
+  /** Ventana que se aplico. Vacia cuando no se pudo leer. */
+  ventana: string;
+  /** Si el evento no tiene fechas legibles y por eso no se pudo contar. */
+  ventana_ilegible: boolean;
+  /**
+   * Compras aprobadas que existen pero cuya fecha no se pudo interpretar.
+   * No cuentan, y se informan para que no sean invisibles.
+   */
+  sin_fecha_legible: number;
+}
+
+/**
+ * Quien tiene compras que cuentan en un evento, contadas para todos a la vez.
+ *
+ * Es la misma regla que {@link contarComprasQueCuentan}, pero para todo el
+ * evento de una vez: una consulta trae las compras de todos y aqui se filtran
+ * por fecha. Preguntar persona por persona seria una consulta por persona, y un
+ * evento con muchos participantes se volveria lento.
+ *
+ * Las compras cuentan si estan aprobadas, son en un comercio patrocinador
+ * aprobado del evento y caen dentro de la ventana del evento.
+ */
+export async function usuariosConComprasQueCuentan(
+  db: D1Database,
+  eventoId: number
+): Promise<UsuariosConComprasQueCuentan> {
+  const sinContar: UsuariosConComprasQueCuentan = {
+    usuarios: new Set<number>(),
+    ventana: "",
+    ventana_ilegible: true,
+    sin_fecha_legible: 0,
+  };
+
+  const ventana = await ventanaDelEvento(db, eventoId);
+  if (ventana === null) return sinContar;
+
+  const compras = await db
+    .prepare(
+      `SELECT f.cliente_id AS cliente_id, f.fecha_factura AS fecha
+       FROM facturas f
+       JOIN eventos_sponsors s ON s.comercio_id = f.comercio_id
+       WHERE f.estado = 'aprobada'
+         AND s.evento_id = ?
+         AND s.estado = 'aprobado'`
+    )
+    .bind(eventoId)
+    .all<{ cliente_id: number; fecha: string | null }>();
+
+  const usuarios = new Set<number>();
+  let sinFecha = 0;
+
+  for (const fila of compras.results ?? []) {
+    const instante = instanteDeCompra(fila.fecha);
+    // Una compra sin fecha legible no se puede colocar en el tiempo, asi que no
+    // cuenta. No es un error: se sigue con las demas y se informa.
+    if (instante === null) {
+      sinFecha++;
+      continue;
+    }
+    if (instante >= ventana.desde && instante <= ventana.hasta) {
+      usuarios.add(fila.cliente_id);
+    }
+  }
+
+  return {
+    usuarios,
+    ventana: ventana.etiqueta,
+    ventana_ilegible: false,
     sin_fecha_legible: sinFecha,
   };
 }

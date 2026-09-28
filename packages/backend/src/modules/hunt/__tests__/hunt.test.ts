@@ -1473,6 +1473,11 @@ describe("GET /hunt/eventos/:eventoId/premios/:premioId/ganadores", () => {
 });
 
 describe("GET /hunt/eventos/:eventoId/participantes-sin-premio", () => {
+  /**
+   * El pool de tests revierte lo que se escribe dentro de un test, asi que cada
+   * caso arma su propio evento y sus propias compras.
+   */
+
   async function crearCliente(email: string, nombre: string): Promise<number> {
     await db
       .prepare(`INSERT INTO usuarios (rol, email, password_hash, nombre_completo)
@@ -1487,98 +1492,191 @@ describe("GET /hunt/eventos/:eventoId/participantes-sin-premio", () => {
     return row.id;
   }
 
-  async function crearEvento(): Promise<number> {
-    const insertRes = await db
-      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
-                VALUES (?, ?, ?, ?)`)
-      .bind(1, "Evento Participantes", futureDate(1), futureDate(3))
+  async function crearComercio(nombre: string): Promise<number> {
+    const res = await db
+      .prepare(`INSERT INTO comercios (usuario_id, nombre, categoria)
+                VALUES (1, ?, 'Cafeteria')`)
+      .bind(nombre)
       .run();
-    return insertRes.meta.last_row_id;
+    return res.meta.last_row_id;
   }
 
-  async function agregarFacturaAprobada(eventoId: number, clienteId: number): Promise<void> {
+  async function crearEvento(opciones: { requiere_entrada?: number } = {}): Promise<number> {
+    const res = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada)
+                VALUES (1, 'Evento Participantes', ?, ?, ?)`)
+      .bind(futureDate(1), futureDate(3), opciones.requiere_entrada ?? 0)
+      .run();
+    return res.meta.last_row_id;
+  }
+
+  async function patrocinar(
+    eventoId: number,
+    comercioId: number,
+    estado = "aprobado"
+  ): Promise<void> {
     await db
-      .prepare(`INSERT INTO facturas (cliente_id, evento_id, nivel_verificacion, estado)
-                VALUES (?, ?, 2, 'aprobada')`)
-      .bind(clienteId, eventoId)
+      .prepare(`INSERT INTO eventos_sponsors (evento_id, comercio_id, estado)
+                VALUES (?, ?, ?)`)
+      .bind(eventoId, comercioId, estado)
       .run();
   }
 
-  it("lista clientes con compra aprobada sin premio entregado", async () => {
+  /**
+   * Compra como la deja la app: con comercio y fecha, nunca atada a un evento.
+   * El evento se reconoce por el patrocinio del comercio.
+   */
+  async function comprar(
+    clienteId: number,
+    comercioId: number,
+    fechaFactura: string,
+    estado = "aprobada"
+  ): Promise<void> {
+    await db
+      .prepare(`INSERT INTO facturas (cliente_id, comercio_id, nivel_verificacion, fecha_factura, estado)
+                VALUES (?, ?, 2, ?, ?)`)
+      .bind(clienteId, comercioId, fechaFactura, estado)
+      .run();
+  }
+
+  async function consultar(eventoId: number, token: string): Promise<{
+    status: number;
+    participantes: Array<{ id: number; nombre_completo: string; email: string }>;
+    advertencias?: string[];
+  }> {
     const app = buildApp();
-    const token = await makeToken(1, "organizador");
-
-    const clienteSinPremio = await crearCliente("cli-sin@test.com", "Cliente Sin Premio");
-    const clienteConPremio = await crearCliente("cli-con@test.com", "Cliente Con Premio");
-    const eventoId = await crearEvento();
-
-    await agregarFacturaAprobada(eventoId, clienteSinPremio);
-    await agregarFacturaAprobada(eventoId, clienteConPremio);
-
-    const premioRes = await db
-      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
-                VALUES (?, ?, ?, ?)`)
-      .bind(eventoId, "Premio Entregado", 5, "principal")
-      .run();
-    const premioId = premioRes.meta.last_row_id;
-
-    await db
-      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
-                VALUES (?, ?, 'entregado')`)
-      .bind(premioId, clienteConPremio)
-      .run();
-
     const res = await app.request(
       `/hunt/eventos/${eventoId}/participantes-sin-premio`,
       { headers: { Authorization: `Bearer ${token}` } },
       { DB: db, JWT_SECRET }
     );
+    return (await res.json()) as {
+      status: number;
+      participantes: Array<{ id: number; nombre_completo: string; email: string }>;
+      advertencias?: string[];
+    };
+  }
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { participantes: Array<{ id: number; nombre_completo: string; email: string }> };
-    expect(body.participantes.length).toBe(1);
-    expect(body.participantes[0].id).toBe(clienteSinPremio);
+  it("lista clientes con compra en comercio patrocinador y sin premio entregado", async () => {
+    const token = await makeToken(1, "organizador");
+    const sinPremio = await crearCliente("cli-sin@test.com", "Cliente Sin Premio");
+    const conPremio = await crearCliente("cli-con@test.com", "Cliente Con Premio");
+    const eventoId = await crearEvento();
+    const comercio = await crearComercio("Cafeteria Patrocinadora");
+    await patrocinar(eventoId, comercio);
+
+    await comprar(sinPremio, comercio, futureDate(2));
+    await comprar(conPremio, comercio, futureDate(2));
+
+    const premioRes = await db
+      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                VALUES (?, 'Premio Entregado', 5, 'principal')`)
+      .bind(eventoId)
+      .run();
+    await db
+      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
+                VALUES (?, ?, 'entregado')`)
+      .bind(premioRes.meta.last_row_id, conPremio)
+      .run();
+
+    const body = await consultar(eventoId, token);
+
+    expect(body.participantes).toHaveLength(1);
+    expect(body.participantes[0].id).toBe(sinPremio);
     expect(body.participantes[0].nombre_completo).toBe("Cliente Sin Premio");
     expect(body.participantes[0].email).toBe("cli-sin@test.com");
   });
 
-  it("devuelve lista vacía cuando todos ya tienen premio o no hay compras", async () => {
-    const app = buildApp();
+  it("no cuenta compras de otro evento, de un patrocinador sin aprobar o no aprobadas", async () => {
     const token = await makeToken(1, "organizador");
-
-    const cliente = await crearCliente("cli-vacio@test.com", "Cliente Vacío");
     const eventoId = await crearEvento();
-    await agregarFacturaAprobada(eventoId, cliente);
+    const otroEventoId = await crearEvento();
 
-    const premioRes = await db
-      .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
-                VALUES (?, ?, ?, ?)`)
-      .bind(eventoId, "Premio Único", 5, "principal")
+    const patrocinado = await crearComercio("Cafeteria Aprobada");
+    const pendiente = await crearComercio("Cafeteria Sin Aprobar");
+    const ajeno = await crearComercio("Cafeteria de Otro Evento");
+    await patrocinar(eventoId, patrocinado, "aprobado");
+    await patrocinar(eventoId, pendiente, "pendiente");
+    await patrocinar(otroEventoId, ajeno, "aprobado");
+
+    const antesDeEvento = await crearCliente("cli-antes@test.com", "Compra Antes");
+    const despuesDeEvento = await crearCliente("cli-despues@test.com", "Compra Despues");
+    const sinAprobar = await crearCliente("cli-pendiente@test.com", "Patrocinador Pendiente");
+    const deOtro = await crearCliente("cli-otro@test.com", "Otro Evento");
+    const noAprobada = await crearCliente("cli-rechazada@test.com", "Compra Rechazada");
+
+    // Fuera de la ventana del evento (1 a 3 dias desde hoy).
+    await comprar(antesDeEvento, patrocinado, futureDate(-5));
+    await comprar(despuesDeEvento, patrocinado, futureDate(9));
+    // En un comercio que todavia no acepto ser patrocinador.
+    await comprar(sinAprobar, pendiente, futureDate(2));
+    // Comercio patrocinador de otro evento.
+    await comprar(deOtro, ajeno, futureDate(2));
+    // Compra que el SRI no aprobo.
+    await comprar(noAprobada, patrocinado, futureDate(2), "rechazada");
+
+    const body = await consultar(eventoId, token);
+
+    expect(body.participantes).toEqual([]);
+  });
+
+  it("incluye a quien solo tiene entrada aprobada cuando el evento pide entrada", async () => {
+    const token = await makeToken(1, "organizador");
+    const soloEntrada = await crearCliente("cli-entrada@test.com", "Solo Entrada");
+    const entradaPendiente = await crearCliente("cli-pagada@test.com", "Entrada Pendiente");
+    const conCompra = await crearCliente("cli-compra@test.com", "Con Compra");
+    const eventoId = await crearEvento({ requiere_entrada: 1 });
+    const comercio = await crearComercio("Cafeteria Con Entrada");
+    await patrocinar(eventoId, comercio);
+
+    await db
+      .prepare(`INSERT INTO entradas (evento_id, cliente_id, estado) VALUES (?, ?, 'aprobada')`)
+      .bind(eventoId, soloEntrada)
       .run();
     await db
-      .prepare(`INSERT INTO premios_entregados (premio_id, usuario_id, estado)
-                VALUES (?, ?, 'entregado')`)
-      .bind(premioRes.meta.last_row_id, cliente)
+      .prepare(`INSERT INTO entradas (evento_id, cliente_id, estado) VALUES (?, ?, 'pendiente_pago')`)
+      .bind(eventoId, entradaPendiente)
+      .run();
+    await comprar(conCompra, comercio, futureDate(2));
+
+    const body = await consultar(eventoId, token);
+
+    expect(body.participantes.map((p) => p.id).sort()).toEqual(
+      [soloEntrada, conCompra].sort()
+    );
+  });
+
+  it("no cuenta la entrada si el evento no la pide", async () => {
+    const token = await makeToken(1, "organizador");
+    const soloEntrada = await crearCliente("cli-solo-entrada@test.com", "Solo Entrada");
+    const eventoId = await crearEvento({ requiere_entrada: 0 });
+
+    await db
+      .prepare(`INSERT INTO entradas (evento_id, cliente_id, estado) VALUES (?, ?, 'aprobada')`)
+      .bind(eventoId, soloEntrada)
       .run();
 
-    const res = await app.request(
-      `/hunt/eventos/${eventoId}/participantes-sin-premio`,
-      { headers: { Authorization: `Bearer ${token}` } },
-      { DB: db, JWT_SECRET }
-    );
+    const body = await consultar(eventoId, token);
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { participantes: unknown[] };
     expect(body.participantes).toEqual([]);
+  });
 
-    const eventoSinCompras = await crearEvento();
-    const res2 = await app.request(
-      `/hunt/eventos/${eventoSinCompras}/participantes-sin-premio`,
-      { headers: { Authorization: `Bearer ${token}` } },
-      { DB: db, JWT_SECRET }
-    );
-    const body2 = (await res2.json()) as { participantes: unknown[] };
-    expect(body2.participantes).toEqual([]);
+  it("avisa que no pudo leer las fechas en vez de devolver una lista vacia", async () => {
+    const token = await makeToken(1, "organizador");
+    const cliente = await crearCliente("cli-fechas@test.com", "Cliente Con Fechas");
+    const eventoRes = await db
+      .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                VALUES (1, 'Evento Sin Fechas Legibles', 'no-es-fecha', 'tampoco')`)
+      .run();
+    const eventoId = eventoRes.meta.last_row_id;
+    const comercio = await crearComercio("Cafeteria Sin Fechas");
+    await patrocinar(eventoId, comercio);
+    await comprar(cliente, comercio, futureDate(2));
+
+    const body = await consultar(eventoId, token);
+
+    expect(body.participantes).toEqual([]);
+    expect(body.advertencias?.[0]).toContain("fechas");
   });
 
   it("niega el acceso a otro organizador", async () => {

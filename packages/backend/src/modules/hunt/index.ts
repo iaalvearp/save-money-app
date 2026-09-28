@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { authMiddleware, requireRole } from "../auth/middleware";
 import { emitirCupon } from "../cupones/index";
-import { contarComprasQueCuentan } from "./frecuencia";
+import {
+  contarComprasQueCuentan,
+  usuariosConComprasQueCuentan,
+} from "./frecuencia";
 import { notificarAUsuarios } from "../notificaciones/index";
 import {
   ahoraEnUtc,
@@ -1033,9 +1036,12 @@ hunt.get(
     const eventoId = c.req.param("eventoId");
 
     const evento = await db
-      .prepare("SELECT organizador_id FROM eventos WHERE id = ?")
+      .prepare(
+        `SELECT organizador_id, requiere_entrada
+         FROM eventos WHERE id = ?`
+      )
       .bind(eventoId)
-      .first<{ organizador_id: number }>();
+      .first<{ organizador_id: number; requiere_entrada: number }>();
 
     if (!evento) {
       return c.json({ error: "Evento no encontrado" }, 404);
@@ -1044,23 +1050,72 @@ hunt.get(
       return c.json({ error: "No tienes permiso" }, 403);
     }
 
-    const result = await db
-      .prepare(
-        `SELECT DISTINCT u.id, u.nombre_completo, u.email
-         FROM facturas f
-         JOIN usuarios u ON f.cliente_id = u.id
-         WHERE f.evento_id = ? AND f.estado = 'aprobada'
-           AND NOT EXISTS (
-             SELECT 1 FROM premios_entregados pe
-             JOIN premios p ON pe.premio_id = p.id
-             WHERE p.evento_id = ? AND pe.usuario_id = u.id AND pe.estado = 'entregado'
-           )
-         ORDER BY u.nombre_completo ASC`
-      )
-      .bind(eventoId, eventoId)
-      .all();
+    // Participa quien tiene una compra que cuenta en un comercio patrocinador
+    // del evento. No se usa facturas.evento_id porque en la app las compras
+    // nunca se anotan contra un evento: se reconocen por el patrocinio y la
+    // fecha, que es como funcionan de verdad.
+    const porCompras = await usuariosConComprasQueCuentan(db, Number(eventoId));
+    const candidatos = new Set<number>(porCompras.usuarios);
 
-    return c.json({ participantes: result.results });
+    // Si el evento pide entrada, tambien participa quien la compro y le
+    // aprobaron, aunque no haya comprado nada.
+    if (evento.requiere_entrada) {
+      const conEntrada = await db
+        .prepare(
+          `SELECT DISTINCT cliente_id FROM entradas
+           WHERE evento_id = ? AND estado = 'aprobada'`
+        )
+        .bind(eventoId)
+        .all<{ cliente_id: number }>();
+
+      for (const fila of conEntrada.results ?? []) {
+        candidatos.add(fila.cliente_id);
+      }
+    }
+
+    const participantes = [];
+    for (const clienteId of candidatos) {
+      const persona = await db
+        .prepare("SELECT id, nombre_completo, email FROM usuarios WHERE id = ?")
+        .bind(clienteId)
+        .first<{ id: number; nombre_completo: string; email: string }>();
+      if (!persona) continue;
+
+      // Ya cobro un premio de este evento, entonces no le corresponde uno.
+      const yaPremio = await db
+        .prepare(
+          `SELECT 1 FROM premios_entregados pe
+           JOIN premios p ON pe.premio_id = p.id
+           WHERE p.evento_id = ? AND pe.usuario_id = ? AND pe.estado = 'entregado'
+           LIMIT 1`
+        )
+        .bind(eventoId, clienteId)
+        .first();
+
+      if (yaPremio) continue;
+
+      participantes.push(persona);
+    }
+
+    participantes.sort((a, b) =>
+      a.nombre_completo.localeCompare(b.nombre_completo, "es")
+    );
+
+    // Si el evento no tiene fechas legibles no se puede saber quien compro, y
+    // se dice en vez de devolver una lista vacia que parece correcta.
+    const advertencias: string[] = [];
+    if (porCompras.ventana_ilegible) {
+      advertencias.push(
+        "No se pudieron leer las fechas del evento, asi que solo se contaron las entradas aprobadas"
+      );
+    }
+    if (porCompras.sin_fecha_legible > 0) {
+      advertencias.push(
+        `${porCompras.sin_fecha_legible} compra(s) aprobada(s) quedaron fuera por fecha ilegible`
+      );
+    }
+
+    return c.json({ participantes, ...(advertencias.length > 0 ? { advertencias } : {}) });
   }
 );
 
