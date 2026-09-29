@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -25,19 +24,6 @@ enum EstadoPermisoNotificaciones {
 }
 
 class NotificacionesService {
-  /// Marca de aviso cerrado. Se escribe cuando ya no tiene sentido volver a
-  /// preguntar: el usuario dijo "Ahora no", o aceptó y el sistema le concedió
-  /// el permiso o se lo denegó para siempre.
-  static const claveAvisoCerrado = 'notificaciones_aviso_cerrado';
-
-  /// Veces que se ha mostrado el aviso. Es el tope de seguridad para que un
-  /// usuario que rechaza el diálogo del sistema no lo vea indefinidamente.
-  static const claveVecesAviso = 'notificaciones_aviso_veces';
-
-  /// Tope de seguridad: el aviso se muestra como máximo este número de veces
-  /// por instalación.
-  static const maximoVecesAviso = 2;
-
   final ApiClient _api;
   final AuthService _auth;
   final Future<String?> Function() _obtenerTokenFcm;
@@ -99,46 +85,6 @@ class NotificacionesService {
       case AuthorizationStatus.notDetermined:
         return EstadoPermisoNotificaciones.noDeterminado;
     }
-  }
-
-  /// Si el aviso está cerrado para siempre: el usuario dijo "Ahora no", o
-  /// aceptó y el sistema le concedió el permiso o se lo denegó para siempre.
-  Future<bool> avisoCerrado() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(claveAvisoCerrado) ?? false;
-  }
-
-  /// Cuántas veces se ha mostrado el aviso en esta instalación.
-  Future<int> vecesAviso() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(claveVecesAviso) ?? 0;
-  }
-
-  /// Anota que el aviso se ha mostrado. Se llama cada vez que se enseña.
-  Future<void> registrarAvisoMostrado() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(claveVecesAviso, (prefs.getInt(claveVecesAviso) ?? 0) + 1);
-  }
-
-  Future<void> cerrarAviso() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(claveAvisoCerrado, true);
-  }
-
-  /// Si toca mostrar el aviso.
-  ///
-  /// Devuelve false si el usuario eligió "Ahora no"; false si el aviso ya se
-  /// mostró [maximoVecesAviso] veces o más; false si el permiso está concedido
-  /// o denegado de forma permanente, porque no habría respuesta posible.
-  ///
-  /// Devuelve true si el permiso sigue sin decidir o está denegado de forma
-  /// simple, porque en ambos casos el sistema todavía puede volver a preguntar.
-  Future<bool> debeMostrarAviso() async {
-    if (await avisoCerrado()) return false;
-    if (await vecesAviso() >= maximoVecesAviso) return false;
-    final estado = await estadoPermiso();
-    return estado == EstadoPermisoNotificaciones.noDeterminado ||
-        estado == EstadoPermisoNotificaciones.denegado;
   }
 
   Future<void> registrarToken() async {
