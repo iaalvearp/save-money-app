@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:permission_handler/permission_handler.dart'
+    show openAppSettings;
 
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -39,11 +41,13 @@ class NotificacionesService {
     Future<String?> Function()? obtenerTokenFcm,
     this.estadoOverride,
     this.solicitarOverride,
-  })  : _api = api ??
-            ApiClient(
-                baseUrl: 'https://save-money-backend.iaalvearp.workers.dev'),
-        _auth = auth ?? AuthService(),
-        _obtenerTokenFcm = obtenerTokenFcm ?? _tokenFcmPorDefecto;
+  }) : _api =
+           api ??
+           ApiClient(
+             baseUrl: 'https://save-money-backend.iaalvearp.workers.dev',
+           ),
+       _auth = auth ?? AuthService(),
+       _obtenerTokenFcm = obtenerTokenFcm ?? _tokenFcmPorDefecto;
 
   static Future<String?> _tokenFcmPorDefecto() async {
     return FirebaseMessaging.instance.getToken();
@@ -106,9 +110,20 @@ class NotificacionesService {
       // fallaba no había forma de saber por qué las notificaciones no
       // llegaban. Se deja rastro en consola y el flujo sigue igual.
       debugPrint('[notificaciones] No se pudo registrar el token FCM: $e');
-      debugPrintStack(stackTrace: st, label: '[notificaciones] origen del fallo al registrar el token FCM');
+      debugPrintStack(
+        stackTrace: st,
+        label: '[notificaciones] origen del fallo al registrar el token FCM',
+      );
     }
   }
+
+  /// Abre los ajustes de la app, único camino para revertir un permiso de
+  /// notificaciones denegado de forma permanente.
+  ///
+  /// Se separa de [solicitarPermiso] a propósito: cuando el sistema ya no va a
+  /// mostrar el diálogo, volver a pedirlo solo le da a la persona la impresión de
+  /// que la app no funciona.
+  static Future<void> abrirConfiguracion() => openAppSettings();
 
   /// Reporta la posición actual del usuario para que el backend evalúe
   /// promociones Flash cercanas. Solo se llama con la app en primer plano.
@@ -129,10 +144,7 @@ class NotificacionesService {
   Future<Map<String, dynamic>> probarNotificacion() async {
     final accessToken = await _auth.getAccessToken();
     if (accessToken == null) {
-      throw ApiException(
-        statusCode: 401,
-        message: 'No hay sesión iniciada',
-      );
+      throw ApiException(statusCode: 401, message: 'No hay sesión iniciada');
     }
     return _api.post(
       '/notificaciones/test',

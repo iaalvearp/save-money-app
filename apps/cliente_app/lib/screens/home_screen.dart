@@ -4,12 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../services/comercios_service.dart';
-import '../services/notificaciones_service.dart';
 import '../services/permiso_ubicacion_service.dart';
 import '../widgets/aviso_ubicacion.dart';
-import '../widgets/dialogo_error.dart';
 import '../widgets/icono_cuadrado.dart';
 import 'ajustes_sheet.dart';
+import 'bandeja_notificaciones_screen.dart';
 import 'comercio_detail_screen.dart';
 import 'flash_screen.dart';
 import 'hunt_screen.dart';
@@ -115,10 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
 
       await _cargarCercanos(position.latitude, position.longitude);
-      await _cargarComercios(
-        lat: position.latitude,
-        lng: position.longitude,
-      );
+      await _cargarComercios(lat: position.latitude, lng: position.longitude);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -223,40 +219,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.flash_on),
             tooltip: 'Flash',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FlashScreen()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const FlashScreen()));
             },
           ),
           IconButton(
             icon: const Icon(Icons.celebration),
             tooltip: 'Hunt',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const HuntScreen()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const HuntScreen()));
             },
           ),
           IconButton(
-            icon: const Icon(Icons.notifications_active),
-            tooltip: 'Probar notificación',
-            onPressed: () async {
-              try {
-                await NotificacionesService().probarNotificacion();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Notificación de prueba enviada'),
-                  ),
-                );
-              } catch (e) {
-                if (!context.mounted) return;
-                await mostrarErrorDialog(
-                  context,
-                  titulo: 'No se pudo enviar',
-                  mensaje: 'No se pudo enviar la notificación de prueba.',
-                );
-              }
+            icon: const Icon(Icons.notifications_none),
+            tooltip: BandejaNotificacionesScreen.titulo,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const BandejaNotificacionesScreen(),
+                ),
+              );
             },
           ),
           IconButton(
@@ -293,9 +278,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   },
                 )
               : null,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
         ),
         onChanged: (_) {
@@ -344,8 +327,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               label: Text(cat),
               selected: _categoriaSeleccionada == cat,
               onSelected: (selected) {
-                setState(() =>
-                    _categoriaSeleccionada = selected ? cat : null);
+                setState(() => _categoriaSeleccionada = selected ? cat : null);
                 _cargarComercios();
               },
             ),
@@ -428,9 +410,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _buildSeccionCercanos(),
             const Divider(height: 1),
           ],
-          if (_comercios.isNotEmpty) ...[
-            _buildSeccionDescubiertos(),
-          ],
+          if (_comercios.isNotEmpty) ...[_buildSeccionDescubiertos()],
         ],
       ),
     );
@@ -537,10 +517,7 @@ class _ComercioTile extends StatelessWidget {
       title: Row(
         children: [
           Expanded(
-            child: Text(
-              comercio.nombre,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(comercio.nombre, overflow: TextOverflow.ellipsis),
           ),
           if (comercio.esPatrocinado) ...[
             const SizedBox(width: 8),
@@ -608,8 +585,7 @@ class _ComercioCercanoCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (comercio.fotoUrl != null &&
-                    comercio.fotoUrl!.isNotEmpty)
+                if (comercio.fotoUrl != null && comercio.fotoUrl!.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
@@ -653,8 +629,11 @@ class _ComercioCercanoCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.location_on,
-                          size: 12, color: Colors.blue[600]),
+                      Icon(
+                        Icons.location_on,
+                        size: 12,
+                        color: Colors.blue[600],
+                      ),
                       const SizedBox(width: 2),
                       Text(
                         '${comercio.distanciaKm} km',
