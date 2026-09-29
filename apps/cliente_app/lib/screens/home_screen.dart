@@ -23,6 +23,9 @@ class HomeScreen extends StatefulWidget {
   /// usa en pruebas.
   final Future<ResultadoUbicacion> Function()? permisoUbicacion;
 
+  /// Comprueba el permiso sin mostrar ningún diálogo. Solo se usa en pruebas.
+  final Future<ResultadoUbicacion> Function()? comprobarPermiso;
+
   /// Inyecta la lectura de la posición. Solo se usa en pruebas.
   final Future<Position> Function()? leerPosicion;
 
@@ -34,6 +37,7 @@ class HomeScreen extends StatefulWidget {
     super.key,
     this.servicio,
     this.permisoUbicacion,
+    this.comprobarPermiso,
     this.leerPosicion,
     this.abrirConfiguracion,
     this.abrirGps,
@@ -80,18 +84,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState estado) {
-    // Volver de los ajustes o de la pantalla de permiso del sistema es el
-    // momento en que el usuario ya resolvió lo que pedía: se vuelve a
-    // comprobar para que la lista aparezca sin que tenga que reintentar a mano.
     if (estado == AppLifecycleState.resumed) {
-      _obtenerUbicacion();
+      _comprobarYRecargar();
     }
   }
 
-  Future<void> _obtenerUbicacion() async {
+  /// Vuelve a mirar el permiso sin pedirlo y, si lo hay, recarga la lista.
+  ///
+  /// Se usa en las tres vueltas desde fuera de la app: el segundo plano, los
+  /// ajustes de la app y los ajustes del GPS. En las tres la persona acaba de
+  /// resolver algo, y preguntar de nuevo metería un diálogo que no pidió. Volver
+  /// a segundo plano no es consentir nada, y abrir los ajustes tampoco: si lo
+  /// Activó, la lista aparece sola; si no lo Activó, la app se queda como está.
+  ///
+  /// El diálogo se queda para cuando toque "Activar ubicación" a propósito.
+  Future<void> _comprobarYRecargar() async {
+    final estado = await _comprobarPermisoUbicacion();
+    if (!mounted) return;
+
+    if (estado != ResultadoUbicacion.ok) {
+      setState(() {
+        _estadoUbicacion = estado;
+        _ubicacionActual = null;
+        _comercios = [];
+        _cercanos = [];
+        _loading = false;
+      });
+      return;
+    }
+
+    await _obtenerUbicacion(permisoYaComprobado: true);
+  }
+
+  /// [permisoYaComprobado] evita volver a mirar el permiso cuando quien llama
+  /// acaba de comprobarlo y sabe que lo tiene.
+  Future<void> _obtenerUbicacion({bool permisoYaComprobado = false}) async {
     // Sin coordenadas no hay lista. Se averigua primero si hay permiso y
     // posición, y solo entonces se pregunta al servidor.
-    final estado = await _pedirPermisoUbicacion();
+    final estado = permisoYaComprobado
+        ? ResultadoUbicacion.ok
+        : await _pedirPermisoUbicacion();
     if (!mounted) return;
 
     if (estado != ResultadoUbicacion.ok) {
@@ -129,6 +161,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return widget.permisoUbicacion?.call() ?? solicitarPermisoUbicacion();
   }
 
+  /// Mira el permiso sin pedirlo. Al volver de segundo plano, o en el reporte
+  /// periódico, preguntar ahí sería interrumpir a la persona sin que lo haya
+  /// pedido.
+  Future<ResultadoUbicacion> _comprobarPermisoUbicacion() {
+    return widget.comprobarPermiso?.call() ?? comprobarPermisoUbicacion();
+  }
+
   Future<Position> _leerPosicionActual() {
     return widget.leerPosicion?.call() ??
         Geolocator.getCurrentPosition(
@@ -141,12 +180,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _abrirConfiguracion() async {
     await (widget.abrirConfiguracion ?? abrirConfiguracionUbicacion)();
-    await _obtenerUbicacion();
+    await _comprobarYRecargar();
   }
 
   Future<void> _encenderGps() async {
     await (widget.abrirGps ?? abrirConfiguracionGps)();
-    await _obtenerUbicacion();
+    await _comprobarYRecargar();
   }
 
   Future<void> _cargarCercanos(double lat, double lng) async {

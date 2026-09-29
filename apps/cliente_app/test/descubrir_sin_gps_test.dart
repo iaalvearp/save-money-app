@@ -30,6 +30,10 @@ Position _posicion({double lat = -0.1807, double lng = -78.4678}) => Position(
 /// ubicación no se pregunta la lista ni una vez.
 class _Llamadas {
   int veces = 0;
+
+  /// Cuántas veces se le ha pedido el permiso. Volver a segundo plano no puede
+  /// sumar ni una: preguntar ahí saca un diálogo que nadie pidió.
+  int peticionesDePermiso = 0;
 }
 
 /// Comercio de prueba, con coordenadas y sin coordenadas.
@@ -197,7 +201,15 @@ void main() {
         MaterialApp(
           home: HomeScreen(
             servicio: _comercios(llamadas),
-            permisoUbicacion: () async => permisoConcedido
+            permisoUbicacion: () async {
+              llamadas.peticionesDePermiso++;
+              return permisoConcedido
+                  ? ResultadoUbicacion.ok
+                  : ResultadoUbicacion.denegado;
+            },
+            // Al volver de segundo plano se consulta, no se pide: por eso la
+            // pantalla tiene la comprobación aparte de la solicitud.
+            comprobarPermiso: () async => permisoConcedido
                 ? ResultadoUbicacion.ok
                 : ResultadoUbicacion.denegado,
             leerPosicion: () async => _posicion(),
@@ -208,6 +220,8 @@ void main() {
       expect(find.text(_mensaje), findsOneWidget);
       expect(llamadas.veces, 0);
 
+      final peticionesAlAbrir = llamadas.peticionesDePermiso;
+
       // El usuario concede el permiso en los ajustes y vuelve a la app.
       permisoConcedido = true;
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -216,6 +230,8 @@ void main() {
       expect(find.text(_mensaje), findsNothing);
       expect(find.text('Cafe'), findsWidgets);
       expect(llamadas.veces, greaterThan(0));
+      // Recargar no es volver a preguntar: ya estaba concedido.
+      expect(llamadas.peticionesDePermiso, peticionesAlAbrir);
     });
 
     testWidgets('el GPS apagado abre los ajustes del dispositivo',

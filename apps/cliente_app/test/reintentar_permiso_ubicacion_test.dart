@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Estos casos no inyectan el permiso: hablan con geolocator como lo haria el
 /// telefono. Asi se comprueba que el boton vuelve a preguntar al sistema y no
@@ -73,16 +74,16 @@ class _LlamadasAlSistema {
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canalAjustes, (call) async {
-      if (call.method == 'openAppSettings') {
-        aperturasDeAjustes++;
-        return true;
-      }
-      if (call.method == 'openLocationSettings') {
-        aperturasDeGps++;
-        return true;
-      }
-      return null;
-    });
+          if (call.method == 'openAppSettings') {
+            aperturasDeAjustes++;
+            return true;
+          }
+          if (call.method == 'openLocationSettings') {
+            aperturasDeGps++;
+            return true;
+          }
+          return null;
+        });
   }
 
   void desinstalar() {
@@ -94,42 +95,49 @@ class _LlamadasAlSistema {
 }
 
 ComerciosService _comerciosVacio() => ComerciosService(
-      api: ApiClient(
-        baseUrl: 'http://test',
-        httpClient: MockClient(
-          (_) async => http.Response(
-            '{"comercios": [], "cercanos": [], "categorias": []}',
-            200,
-            headers: {'content-type': 'application/json'},
-          ),
-        ),
+  api: ApiClient(
+    baseUrl: 'http://test',
+    httpClient: MockClient(
+      (_) async => http.Response(
+        '{"comercios": [], "cercanos": [], "categorias": []}',
+        200,
+        headers: {'content-type': 'application/json'},
       ),
-    );
+    ),
+  ),
+);
 
 FlashService _flashVacio() => FlashService(
-      api: ApiClient(
-        baseUrl: 'http://test',
-        httpClient: MockClient(
-          (_) async => http.Response(
-            '{"promociones": []}',
-            200,
-            headers: {'content-type': 'application/json'},
-          ),
-        ),
+  api: ApiClient(
+    baseUrl: 'http://test',
+    httpClient: MockClient(
+      (_) async => http.Response(
+        '{"promociones": []}',
+        200,
+        headers: {'content-type': 'application/json'},
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late _LlamadasAlSistema sistema;
 
-  setUp(() => sistema = _LlamadasAlSistema());
+  // El servicio lleva la cuenta de cuántos intentos lleva en el dispositivo, así
+  // que cada caso arranca en cero: si no, el contador de uno se colaría al
+  // siguiente y el botón cambiaría de texto sin que nadie lo tocara.
+  setUp(() {
+    sistema = _LlamadasAlSistema();
+    SharedPreferences.setMockInitialValues({});
+  });
   tearDown(() => sistema.desinstalar());
 
   group('Permiso denegado sin querer: se vuelve a preguntar', () {
-    testWidgets('Discover: tocar el botón pide el permiso otra vez',
-        (tester) async {
+    testWidgets('Discover: tocar el botón pide el permiso otra vez', (
+      tester,
+    ) async {
       sistema.instalar(gpsEncendido: true, permiso: _denegado);
 
       await tester.pumpWidget(
@@ -150,7 +158,9 @@ void main() {
       expect(sistema.aperturasDeAjustes, 0);
     });
 
-    testWidgets('Flash: tocar el botón pide el permiso otra vez', (tester) async {
+    testWidgets('Flash: tocar el botón pide el permiso otra vez', (
+      tester,
+    ) async {
       sistema.instalar(gpsEncendido: true, permiso: _denegado);
 
       await tester.pumpWidget(
@@ -170,8 +180,9 @@ void main() {
   });
 
   group('El segundo rechazo es el que manda a Ajustes', () {
-    testWidgets('Discover: reintentar sin querer y acabar en configuración',
-        (tester) async {
+    testWidgets('Discover: reintentar sin querer y acabar en configuración', (
+      tester,
+    ) async {
       sistema.instalar(
         gpsEncendido: true,
         permiso: _denegado,
@@ -197,8 +208,9 @@ void main() {
       expect(find.text('Activar ubicación'), findsNothing);
     });
 
-    testWidgets('Flash: reintentar sin querer y acabar en configuración',
-        (tester) async {
+    testWidgets('Flash: reintentar sin querer y acabar en configuración', (
+      tester,
+    ) async {
       sistema.instalar(
         gpsEncendido: true,
         permiso: _denegado,
@@ -222,10 +234,7 @@ void main() {
 
   group('Permiso denegado para siempre: solo Ajustes', () {
     testWidgets('Discover: el botón abre la configuración', (tester) async {
-      sistema.instalar(
-        gpsEncendido: true,
-        permiso: _denegadoParaSiempre,
-      );
+      sistema.instalar(gpsEncendido: true, permiso: _denegadoParaSiempre);
 
       await tester.pumpWidget(
         MaterialApp(home: HomeScreen(servicio: _comerciosVacio())),
@@ -246,10 +255,7 @@ void main() {
     });
 
     testWidgets('Flash: el botón abre la configuración', (tester) async {
-      sistema.instalar(
-        gpsEncendido: true,
-        permiso: _denegadoParaSiempre,
-      );
+      sistema.instalar(gpsEncendido: true, permiso: _denegadoParaSiempre);
 
       await tester.pumpWidget(
         MaterialApp(home: FlashScreen(servicio: _flashVacio())),
@@ -266,8 +272,9 @@ void main() {
   });
 
   group('GPS apagado: los ajustes de ubicación, no los de la app', () {
-    testWidgets('Discover: enciende el GPS sin pedir el permiso',
-        (tester) async {
+    testWidgets('Discover: enciende el GPS sin pedir el permiso', (
+      tester,
+    ) async {
       sistema.instalar(gpsEncendido: false, permiso: _concedido);
 
       await tester.pumpWidget(
