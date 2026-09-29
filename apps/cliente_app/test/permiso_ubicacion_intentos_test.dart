@@ -1,6 +1,7 @@
 import 'package:cliente_app/screens/flash_screen.dart';
 import 'package:cliente_app/screens/home_screen.dart';
 import 'package:cliente_app/services/api_client.dart';
+import 'package:cliente_app/services/auth_service.dart';
 import 'package:cliente_app/services/comercios_service.dart';
 import 'package:cliente_app/services/flash_service.dart';
 import 'package:cliente_app/services/permiso_ubicacion_service.dart';
@@ -35,7 +36,18 @@ ComerciosService _comerciosCon(String respuesta) => ComerciosService(
   ),
 );
 
+/// El token se resuelve dentro del servicio, asi que hace falta uno de mentira
+/// para que los tests no vayan al almacenamiento seguro del sistema.
+class _FakeAuth extends AuthService {
+  @override
+  Future<String?> getAccessToken() async => 'token-de-prueba';
+
+  @override
+  Future<void> logout() async {}
+}
+
 FlashService _flashVacio() => FlashService(
+  auth: _FakeAuth(),
   api: ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient(

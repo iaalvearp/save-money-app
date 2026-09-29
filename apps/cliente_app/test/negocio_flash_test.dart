@@ -22,6 +22,7 @@ class _FakeAuth extends AuthService {
 FlashService _servicioFlashCon(MockClient mock) {
   return FlashService(
     api: ApiClient(baseUrl: 'http://test', httpClient: mock),
+    auth: _FakeAuth(),
   );
 }
 

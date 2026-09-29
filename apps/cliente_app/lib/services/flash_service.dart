@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import 'auth_service.dart';
 
 class PromocionFlash {
   final int id;
@@ -52,19 +53,24 @@ class PromocionFlash {
     );
   }
 
+  /// Si la promocion se puede usar ahora mismo.
+  ///
+  /// Los dos limites se cuentan como los cuenta el backend, que es lo unico
+  /// que decide si la promo aparece en la lista: empieza inclusive y termina
+  /// exclusive, `inicia_en <= ahora < termina_en`.
   bool get estaActiva {
-    final now = DateTime.now();
-    final inicio = DateTime.parse(iniciaEn);
-    final fin = DateTime.parse(terminaEn);
-    return now.isAfter(inicio) && now.isBefore(fin);
+    final now = DateTime.now().toUtc();
+    final inicio = _leerComoUtc(iniciaEn);
+    final fin = _leerComoUtc(terminaEn);
+    return !now.isBefore(inicio) && now.isBefore(fin);
   }
 
   String get estadoTexto {
-    final now = DateTime.now();
-    final inicio = DateTime.parse(iniciaEn);
-    final fin = DateTime.parse(terminaEn);
+    final now = DateTime.now().toUtc();
+    final inicio = _leerComoUtc(iniciaEn);
+    final fin = _leerComoUtc(terminaEn);
     if (now.isBefore(inicio)) return 'Próximamente';
-    if (now.isAfter(fin)) return 'Finalizada';
+    if (!now.isBefore(fin)) return 'Finalizada';
     return 'Activa';
   }
 }
@@ -112,13 +118,48 @@ class Cupon {
 final formatearFecha = (DateTime dt) =>
       dt.toUtc().toIso8601String().replaceFirst('T', ' ').substring(0, 19);
 
+/// Una fecha como la guarda [formatearFecha]: AAAA-MM-DD HH:MM:SS, sin zona.
+final _fechaHoraSinZona =
+    RegExp(r'^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$');
+
+/// Lee una fecha como la guarda [formatearFecha]: en UTC, sin zona.
+///
+/// `DateTime.parse` no sirve aqui. Esa fecha viene escrita en UTC pero sin la
+/// marca de zona, asi que el parseo la tomaria por hora local y la dejaria
+/// cinco horas temprano en Ecuador: una promocion que ya empezo apareceria
+/// como "Proximamente" y una que termino seguiria vigente.
+DateTime _leerComoUtc(String texto) {
+  final partes = _fechaHoraSinZona.firstMatch(texto.trim());
+  if (partes == null) return DateTime.parse(texto).toUtc();
+  return DateTime.utc(
+    int.parse(partes.group(1)!),
+    int.parse(partes.group(2)!),
+    int.parse(partes.group(3)!),
+    int.parse(partes.group(4)!),
+    int.parse(partes.group(5)!),
+    int.parse(partes.group(6) ?? '0'),
+  );
+}
+
 class FlashService {
   final ApiClient _api;
+  final AuthService _auth;
 
-  FlashService({ApiClient? api})
+  FlashService({ApiClient? api, AuthService? auth})
       : _api = api ??
             ApiClient(
-                baseUrl: 'https://save-money-backend.iaalvearp.workers.dev');
+                baseUrl: 'https://save-money-backend.iaalvearp.workers.dev'),
+        _auth = auth ?? AuthService();
+
+  /// El token que se manda en cada peticion.
+  ///
+  /// Si quien llama no trae uno, se busca el de la sesion. Sin esto la
+  /// peticion sale sin cabecera `Authorization`, el backend contesta 401 y la
+  /// pantalla se queda vacia sin llegar a saber por que.
+  Future<String?> _tokenDe(String? token) async {
+    if (token != null) return token;
+    return _auth.getAccessToken();
+  }
 
   Future<List<PromocionFlash>> listarPromociones({
     double? lat,
@@ -139,7 +180,7 @@ class FlashService {
         ? '/flash/promociones'
         : '/flash/promociones?${params.join('&')}';
 
-    final response = await _api.get(path, token: token);
+    final response = await _api.get(path, token: await _tokenDe(token));
     final promos = response['promociones'] as List<dynamic>? ?? [];
     return promos
         .map((p) => PromocionFlash.fromJson(p as Map<String, dynamic>))
@@ -188,21 +229,31 @@ class FlashService {
     return PromocionFlash.fromJson(response['promocion'] as Map<String, dynamic>);
   }
 
-  Future<Map<String, dynamic>> obtenerPromocion(int id) async {
-    final response = await _api.get('/flash/promociones/$id');
-    return response;
-  }
-
-  Future<Map<String, dynamic>> reclamarPromocion(int promocionId) async {
-    final response = await _api.post(
-      '/flash/promociones/$promocionId/claim',
-      body: {},
+  Future<Map<String, dynamic>> obtenerPromocion(int id, {String? token}) async {
+    final response = await _api.get(
+      '/flash/promociones/$id',
+      token: await _tokenDe(token),
     );
     return response;
   }
 
-  Future<List<Cupon>> misCupones() async {
-    final response = await _api.get('/flash/mis-cupones');
+  Future<Map<String, dynamic>> reclamarPromocion(
+    int promocionId, {
+    String? token,
+  }) async {
+    final response = await _api.post(
+      '/flash/promociones/$promocionId/claim',
+      body: {},
+      token: await _tokenDe(token),
+    );
+    return response;
+  }
+
+  Future<List<Cupon>> misCupones({String? token}) async {
+    final response = await _api.get(
+      '/flash/mis-cupones',
+      token: await _tokenDe(token),
+    );
     final cupones = response['cupones'] as List<dynamic>? ?? [];
     return cupones
         .map((c) => Cupon.fromJson(c as Map<String, dynamic>))
@@ -216,7 +267,7 @@ class FlashService {
     return _api.post(
       '/cupones/$codigoQr/canjear',
       body: {},
-      token: token,
+      token: await _tokenDe(token),
     );
   }
 }
