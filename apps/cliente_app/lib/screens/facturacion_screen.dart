@@ -147,7 +147,8 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
 
       switch (resultado) {
         // El OCR leyo la clave entera: se registra con el mismo metodo que
-        // usa el QR, con la misma validacion y los mismos errores.
+        // usa el codigo de barras o el QR, con la misma validacion y los
+        // mismos errores.
         case OcrClaveAccesoLeida(:final claveAcceso):
           _registrarFactura(claveManual: claveAcceso);
         case OcrEnviadoAMano(:final facturaId, :final estado):
@@ -248,7 +249,7 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
             OutlinedButton.icon(
               onPressed: _escanearQR,
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Escanear código QR'),
+              label: const Text('Escanear clave de acceso'),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 textStyle: const TextStyle(fontSize: 16),
@@ -529,6 +530,22 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
 bool esClaveAccesoValida(String valor) =>
     RegExp(r'^\d{49}$').hasMatch(valor);
 
+/// El texto que trae una captura del escáner, o null si no leyó nada.
+///
+/// Da igual de qué formato venga el código. Los comprobantes ecuatorianos
+/// imprimen la clave como código de barras Code128 casi nunca como QR, y los
+/// dos llevan el mismo texto, así que se leen igual. Si el código no se puede
+/// leer se devuelve null para que la pantalla no se queje: el fotograma puede
+/// haber pillado medio comprobante. La validación de los 49 dígitos es la de
+/// siempre, [esClaveAccesoValida]: no se repite por formato.
+String? valorDeCaptura(BarcodeCapture captura) {
+  for (final barcode in captura.barcodes) {
+    final valor = barcode.rawValue;
+    if (valor != null && valor.isNotEmpty) return valor;
+  }
+  return null;
+}
+
 class _QrScannerScreen extends StatefulWidget {
   const _QrScannerScreen();
 
@@ -537,6 +554,10 @@ class _QrScannerScreen extends StatefulWidget {
 }
 
 class _QrScannerScreenState extends State<_QrScannerScreen> {
+  // Sin lista de formatos: en mobile_scanner 7 eso es "todos". La lista
+  // solo se manda a la camara cuando no esta vacia, asi que ya se detectan
+  // los codigos de barras (Code128) y no solo los QR. Limitarla seria
+  // quitar formatos que hoy funcionan.
   final MobileScannerController _controller = MobileScannerController();
   bool _dialogoVisible = false;
   bool _resolvidoValido = false;
@@ -563,13 +584,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   Future<void> _onDetect(BarcodeCapture captura) async {
     if (_resolvidoValido) return;
 
-    String? valor;
-    for (final barcode in captura.barcodes) {
-      if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
-        valor = barcode.rawValue;
-        break;
-      }
-    }
+    final valor = valorDeCaptura(captura);
     if (valor == null) return;
 
     if (esClaveAccesoValida(valor)) {
@@ -586,8 +601,8 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
 
     await mostrarErrorDialog(
       context,
-      titulo: 'QR no válido',
-      mensaje: 'Este código QR no corresponde a una clave de acceso válida.',
+      titulo: 'Código no válido',
+      mensaje: 'Este código no corresponde a una clave de acceso válida.',
     );
 
     if (!mounted) return;
@@ -597,7 +612,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Escanear QR')),
+      appBar: AppBar(title: const Text('Escanear clave de acceso')),
       body: switch (_estadoPermiso) {
         EstadoPermisoCamara.concediendo =>
           const Center(child: CircularProgressIndicator()),
@@ -607,7 +622,7 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
             estado: _estadoPermiso,
             onReintentar: _verificarPermisoCamara,
             onCerrar: () => Navigator.of(context).pop(),
-            mensaje: 'Sin acceso a la cámara no es posible escanear el código QR.',
+            mensaje: 'Sin acceso a la cámara no es posible escanear el código.',
           ),
         EstadoPermisoCamara.concedido => MobileScanner(
             controller: _controller,
