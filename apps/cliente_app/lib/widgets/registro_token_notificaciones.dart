@@ -33,8 +33,10 @@ class RegistroTokenNotificaciones extends StatefulWidget {
       _RegistroTokenNotificacionesState();
 }
 
-class _RegistroTokenNotificacionesState extends State<RegistroTokenNotificaciones> {
-  late final NotificacionesService _servicio = widget.servicio ?? NotificacionesService();
+class _RegistroTokenNotificacionesState
+    extends State<RegistroTokenNotificaciones> {
+  late final NotificacionesService _servicio =
+      widget.servicio ?? NotificacionesService.compartido();
   bool _registrado = false;
 
   @override

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../services/comercios_service.dart';
+import '../services/notificaciones_service.dart';
 import '../services/permiso_ubicacion_service.dart';
 import '../widgets/aviso_ubicacion.dart';
 import '../widgets/icono_cuadrado.dart';
@@ -233,13 +234,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ).push(MaterialPageRoute(builder: (_) => const HuntScreen()));
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications_none),
-            tooltip: BandejaNotificacionesScreen.titulo,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const BandejaNotificacionesScreen(),
+          Builder(
+            builder: (context) {
+              // Sin buzón en el árbol (pantalla probada suelta) la campana se
+              // dibuja igual, solo que sin contador.
+              final buzon = NotificacionesScope.maybeOf(context);
+              return Badge(
+                label: Text('${buzon?.noLeidas ?? 0}'),
+                isLabelVisible: (buzon?.noLeidas ?? 0) > 0,
+                child: IconButton(
+                  icon: const Icon(Icons.notifications_none),
+                  tooltip: BandejaNotificacionesScreen.titulo,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const BandejaNotificacionesScreen(),
+                      ),
+                    );
+                  },
                 ),
               );
             },

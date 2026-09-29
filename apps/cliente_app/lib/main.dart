@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/role_navigation.dart';
 import 'services/auth_service.dart';
+import 'services/notificaciones_service.dart';
 import 'services/theme_service.dart';
 import 'widgets/reporte_ubicacion.dart';
 
@@ -11,6 +12,12 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   final themeService = await ThemeService.cargar();
+  // El buzón se lee y se queda escuchando antes de dibujar nada: un aviso que
+  // llegue con la app recién abierta tiene que estar en la lista, no aparecer
+  // un segundo después de que la persona mire la campana.
+  final notificaciones = NotificacionesService.compartido();
+  await notificaciones.cargar();
+  notificaciones.escucharMensajes();
   runApp(MyApp(themeService: themeService));
 }
 
@@ -46,9 +53,7 @@ class MyApp extends StatelessWidget {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(shape: forma),
       ),
-      floatingActionButtonTheme: FloatingActionButtonThemeData(
-        shape: forma,
-      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(shape: forma),
     );
   }
 
