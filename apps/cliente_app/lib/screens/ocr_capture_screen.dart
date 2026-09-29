@@ -4,10 +4,38 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../services/auth_service.dart';
+import '../services/facturas_service.dart';
 import '../services/ocr_service.dart';
 import '../services/permiso_camara_service.dart';
 import '../widgets/aviso_permiso_camara.dart';
 import 'ocr_confirm_screen.dart';
+
+/// Lo que devuelve la captura de un ticket, segun lo que se pudo leer.
+sealed class OcrTicketResult {
+  const OcrTicketResult();
+}
+
+/// Se leyeron los 49 digitos de la clave de acceso.
+///
+/// No se registra aqui: se devuelve la clave y la registra la pantalla que abrio
+/// la captura, con su propio metodo de registro. Asi el ticket con clave
+/// completa y el escaneo de QR acaban en el mismo sitio, con el mismo codigo y
+/// el mismo trato de errores.
+class OcrClaveAccesoLeida extends OcrTicketResult {
+  final String claveAcceso;
+
+  const OcrClaveAccesoLeida(this.claveAcceso);
+}
+
+/// No se pudo leer la clave de acceso, asi que el usuario reviso y corrigio los
+/// datos a mano y se mandaron a revision.
+class OcrEnviadoAMano extends OcrTicketResult {
+  final int facturaId;
+  final String estado;
+
+  const OcrEnviadoAMano({required this.facturaId, required this.estado});
+}
 
 class OcrCaptureScreen extends StatefulWidget {
   final int comercioId;
@@ -17,11 +45,23 @@ class OcrCaptureScreen extends StatefulWidget {
   /// usa en pruebas, donde `dart:io Platform` no es Android ni iOS.
   final bool? soportaCamara;
 
+  /// Se inyectan en pruebas para poder decidir el camino sin una foto real.
+  final OcrService? ocrService;
+  final ImagePicker? imagePicker;
+
+  /// Se pasan hacia la revision manual. En pruebas evitan la red.
+  final FacturasService? facturasService;
+  final AuthService? authService;
+
   const OcrCaptureScreen({
     super.key,
     required this.comercioId,
     required this.comercioNombre,
     this.soportaCamara,
+    this.ocrService,
+    this.imagePicker,
+    this.facturasService,
+    this.authService,
   });
 
   @override
@@ -29,15 +69,17 @@ class OcrCaptureScreen extends StatefulWidget {
 }
 
 class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
-  final _ocrService = OcrService();
-  final _imagePicker = ImagePicker();
+  late final OcrService _ocrService = widget.ocrService ?? OcrService();
+  late final ImagePicker _imagePicker = widget.imagePicker ?? ImagePicker();
   bool _procesando = false;
   String? _error;
   EstadoPermisoCamara? _estadoPermiso;
 
   @override
   void dispose() {
-    _ocrService.dispose();
+    // El OCR solo se cierra si esta pantalla lo creo. Si vino inyectado, quien
+    // lo paso sigue siendo dueño de el.
+    if (widget.ocrService == null) _ocrService.dispose();
     super.dispose();
   }
 
@@ -82,12 +124,25 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
 
       if (!mounted) return;
 
+      // Con los 49 digitos de la clave no hace falta que el usuario lea nada:
+      // se devuelve tal cual y se registra contra el SRI igual que con el QR.
+      final claveAcceso = ocrResult.claveAcceso;
+      if (claveAcceso != null && claveAcceso.length == 49) {
+        setState(() => _procesando = false);
+        Navigator.of(context).pop(OcrClaveAccesoLeida(claveAcceso));
+        return;
+      }
+
+      // Sin clave completa se revisa a mano. Un digito de menos o de mas no se
+      // puede validar contra el SRI, y adivinarlo daria un rechazo incomprensible.
       final resultado = await Navigator.of(context).push<OcrConfirmResult>(
         MaterialPageRoute(
           builder: (_) => OcrConfirmScreen(
             ocrResult: ocrResult,
             comercioId: widget.comercioId,
             comercioNombre: widget.comercioNombre,
+            facturasService: widget.facturasService,
+            authService: widget.authService,
           ),
         ),
       );
@@ -96,7 +151,12 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
       setState(() => _procesando = false);
 
       if (resultado != null && context.mounted) {
-        Navigator.of(context).pop(resultado);
+        Navigator.of(context).pop(
+          OcrEnviadoAMano(
+            facturaId: resultado.facturaId,
+            estado: resultado.estado,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('[ocr_capture] Error al procesar la imagen: $e');

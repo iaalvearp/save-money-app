@@ -12,7 +12,6 @@ import '../widgets/aviso_permiso_camara.dart';
 import '../widgets/dialogo_error.dart';
 import 'nivel3_capture_screen.dart';
 import 'ocr_capture_screen.dart';
-import 'ocr_confirm_screen.dart';
 
 class FacturacionScreen extends StatefulWidget {
   final int comercioId;
@@ -136,7 +135,7 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
   }
 
   void _escanearTicket() {
-    Navigator.of(context).push<OcrConfirmResult>(
+    Navigator.of(context).push<OcrTicketResult>(
       MaterialPageRoute(
         builder: (_) => OcrCaptureScreen(
           comercioId: widget.comercioId,
@@ -144,17 +143,24 @@ class _FacturacionScreenState extends State<FacturacionScreen> {
         ),
       ),
     ).then((resultado) {
-      if (resultado != null && mounted) {
-        setState(() {
-          _resultado = RegistroResult(
-            facturaId: resultado.facturaId,
-            estado: resultado.estado,
-            motivoRechazo: resultado.estado == 'pendiente_revision_nombre'
-                ? 'Comprobante verificado por OCR, pendiente validación'
-                : null,
-          );
-          _estado = _EstadoFactura.resultado;
-        });
+      if (resultado == null || !mounted) return;
+
+      switch (resultado) {
+        // El OCR leyo la clave entera: se registra con el mismo metodo que
+        // usa el QR, con la misma validacion y los mismos errores.
+        case OcrClaveAccesoLeida(:final claveAcceso):
+          _registrarFactura(claveManual: claveAcceso);
+        case OcrEnviadoAMano(:final facturaId, :final estado):
+          setState(() {
+            _resultado = RegistroResult(
+              facturaId: facturaId,
+              estado: estado,
+              motivoRechazo: estado == 'pendiente_revision_nombre'
+                  ? 'Comprobante verificado por OCR, pendiente validación'
+                  : null,
+            );
+            _estado = _EstadoFactura.resultado;
+          });
       }
     });
   }

@@ -17,11 +17,17 @@ class OcrConfirmScreen extends StatefulWidget {
   final int comercioId;
   final String comercioNombre;
 
+  /// Se inyectan en pruebas para no salir a la red al confirmar.
+  final FacturasService? facturasService;
+  final AuthService? authService;
+
   const OcrConfirmScreen({
     super.key,
     required this.ocrResult,
     required this.comercioId,
     required this.comercioNombre,
+    this.facturasService,
+    this.authService,
   });
 
   @override
@@ -31,14 +37,15 @@ class OcrConfirmScreen extends StatefulWidget {
 enum _EstadoEnvio { editando, enviando, resultado, error }
 
 class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
-  final _facturasService = FacturasService();
-  final _authService = AuthService();
+  late final _facturasService = widget.facturasService ?? FacturasService();
+  late final _authService = widget.authService ?? AuthService();
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nombreNegocioController;
   late TextEditingController _fechaController;
   late TextEditingController _montoController;
   late TextEditingController _numeroComprobanteController;
+  late TextEditingController _rucEmisorController;
 
   _EstadoEnvio _estado = _EstadoEnvio.editando;
   String? _mensajeError;
@@ -60,6 +67,9 @@ class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
     _numeroComprobanteController = TextEditingController(
       text: widget.ocrResult.numeroComprobante ?? '',
     );
+    _rucEmisorController = TextEditingController(
+      text: widget.ocrResult.rucEmisor ?? '',
+    );
   }
 
   @override
@@ -68,12 +78,41 @@ class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
     _fechaController.dispose();
     _montoController.dispose();
     _numeroComprobanteController.dispose();
+    _rucEmisorController.dispose();
     super.dispose();
   }
 
   double? _parseMonto(String value) {
     final cleaned = value.replaceAll(RegExp(r'[^0-9\.\,]'), '').replaceAll(',', '.');
     return double.tryParse(cleaned);
+  }
+
+  /// Acepta las dos formas en que viene una fecha en un ticket, `2026/09/25` y
+  /// `25/09/2026`, con barra o guion, y comprueba que ese dia exista de verdad:
+  /// un `39/13/2026` no es una fecha, es ruido de la foto.
+  static bool _esFechaLegible(String value) {
+    final partes = RegExp(r'^(\d{1,4})([/\-])(\d{1,2})\2(\d{1,4})$')
+        .firstMatch(value.trim());
+    if (partes == null) return false;
+
+    final primero = partes.group(1)!;
+    final segundo = int.parse(partes.group(3)!);
+    final tercero = int.parse(partes.group(4)!);
+
+    // Con cuatro digitos al principio, el orden es ano/mes/dia; si los cuatro
+    // digitos estan al final, es dia/mes/ano. En cualquier otro caso no se sabe
+    // que dia es y no se adivina.
+    final (anio, mes, dia) = primero.length == 4
+        ? (int.parse(primero), segundo, tercero)
+        : (tercero, segundo, int.parse(primero));
+
+    if (anio < 1900 || anio > 2100) return false;
+    if (mes < 1 || mes > 12) return false;
+    if (dia < 1 || dia > 31) return false;
+
+    // Que el dia quepa en ese mes: no hay 31 de febrero.
+    final diasDelMes = DateTime(anio, mes + 1, 0).day;
+    return dia <= diasDelMes;
   }
 
   Future<void> _enviar() async {
@@ -101,6 +140,9 @@ class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
             ? _fechaController.text
             : null,
         montoTotal: monto,
+        rucEmisor: _rucEmisorController.text.isNotEmpty
+            ? _rucEmisorController.text
+            : null,
       );
 
       if (!mounted) return;
@@ -185,8 +227,12 @@ class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
               detectado: widget.ocrResult.fecha != null,
               validator: (value) {
                 if (value == null || value.isEmpty) return null;
-                if (!RegExp(r'^\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}$').hasMatch(value)) {
-                  return 'Formato: DD/MM/YYYY';
+                // El ticket puede traer la fecha como 2026/09/25 o como
+                // 25/09/2026, y el backend lee las dos. Aceptar solo una hacia
+                // que el usuario tuviera que corregir a mano una fecha que el
+                // OCR ya habia leido bien.
+                if (!_esFechaLegible(value)) {
+                  return 'Fecha no válida';
                 }
                 return null;
               },
@@ -213,6 +259,21 @@ class _OcrConfirmScreenState extends State<OcrConfirmScreen> {
               label: 'Nº comprobante',
               icono: Icons.confirmation_number,
               detectado: widget.ocrResult.numeroComprobante != null,
+            ),
+            const SizedBox(height: 16),
+            _buildCampoDetectado(
+              controller: _rucEmisorController,
+              label: 'RUC del emisor',
+              icono: Icons.badge_outlined,
+              detectado: widget.ocrResult.rucEmisor != null,
+              keyboardType: TextInputType.number,
+              validator: (value) {
+                if (value == null || value.isEmpty) return null;
+                if (!RegExp(r'^\d{13}$').hasMatch(value.trim())) {
+                  return 'Son 13 dígitos';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
