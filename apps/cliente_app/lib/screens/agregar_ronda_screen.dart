@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../widgets/selector_fecha_hora.dart';
 
 class AgregarRondaScreen extends StatefulWidget {
   final int eventoId;
@@ -10,6 +11,10 @@ class AgregarRondaScreen extends StatefulWidget {
   final HuntService? servicio;
   final AuthService? auth;
 
+  /// Sustituyen al calendario y al reloj del sistema en pruebas.
+  final PedirFecha? pedirFecha;
+  final PedirHora? pedirHora;
+
   const AgregarRondaScreen({
     super.key,
     required this.eventoId,
@@ -17,6 +22,8 @@ class AgregarRondaScreen extends StatefulWidget {
     required this.fechaFin,
     this.servicio,
     this.auth,
+    this.pedirFecha,
+    this.pedirHora,
   });
 
   @override
@@ -31,10 +38,20 @@ class _AgregarRondaScreenState extends State<AgregarRondaScreen> {
   final _inicioController = TextEditingController();
   final _finController = TextEditingController();
 
+  /// Inicio de la ronda, para que el selector de fin no pase de ahí.
+  DateTime? _inicioRonda;
+
   bool _enviando = false;
   String? _error;
 
   final _formKey = GlobalKey<FormState>();
+
+  /// Ventana del evento: una ronda no puede empezar antes de que empiece el
+  /// evento ni terminar después de que termine.
+  DateTime get _inicioEvento =>
+      DateTime.tryParse(widget.fechaInicio) ?? DateTime(2000, 1, 1);
+  DateTime get _finEvento =>
+      DateTime.tryParse(widget.fechaFin) ?? DateTime(2100, 1, 1);
 
   @override
   void initState() {
@@ -137,24 +154,31 @@ class _AgregarRondaScreenState extends State<AgregarRondaScreen> {
               validator: _validarNombre,
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            SelectorFechaHora(
               controller: _inicioController,
-              decoration: const InputDecoration(
-                labelText: 'Hora de inicio',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Hora de inicio',
+              minimo: _inicioEvento,
+              maximo: _finEvento,
               validator: _validarDentroDelEvento,
+              pedirFecha: widget.pedirFecha,
+              pedirHora: widget.pedirHora,
+              onCambiado: (valor) => setState(() {
+                _inicioRonda = valor;
+                if (valor != null && SelectorFechaHora.leer(_finController.text) != null) {
+                  _formKey.currentState?.validate();
+                }
+              }),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            SelectorFechaHora(
               controller: _finController,
-              decoration: const InputDecoration(
-                labelText: 'Hora de fin',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Hora de fin',
+              minimo: _inicioRonda ?? _inicioEvento,
+              maximo: _finEvento,
               validator: _validarFinRonda,
+              pedirFecha: widget.pedirFecha,
+              pedirHora: widget.pedirHora,
+              onCambiado: (_) => _formKey.currentState?.validate(),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),

@@ -13,6 +13,7 @@ import 'package:cliente_app/services/api_client.dart';
 import 'package:cliente_app/services/auth_service.dart';
 import 'package:cliente_app/services/comercios_service.dart';
 import 'package:cliente_app/services/hunt_service.dart';
+import 'package:cliente_app/widgets/selector_fecha_hora.dart';
 
 class _FakeAuth extends AuthService {
   @override
@@ -36,22 +37,52 @@ HuntService _servicioHuntCon(MockClient mock) {
 
 void main() {
   group('CrearEventoScreen', () {
+    /// Calendario y reloj de mentira: se pulsan los campos en orden y cada uno
+    /// devuelve el valor que le corresponde.
+    List<DateTime> fechasElegidas = [];
+    List<TimeOfDay> horasElegidas = [];
+
+    PedirFecha pedirFechaDePrueba() {
+      return (context, inicial, primero, ultimo) async =>
+          fechasElegidas.removeAt(0);
+    }
+
+    PedirHora pedirHoraDePrueba() {
+      return (context, inicial) async => horasElegidas.removeAt(0);
+    }
+
+    setUp(() {
+      fechasElegidas = [];
+      horasElegidas = [];
+    });
+
+    /// Elige fecha y hora en el campo indicado, como haría una persona.
+    Future<void> elegir(WidgetTester tester, String etiqueta) async {
+      await tester.ensureVisible(find.widgetWithText(TextFormField, etiqueta));
+      await tester.tap(find.widgetWithText(TextFormField, etiqueta));
+      await tester.pumpAndSettle();
+    }
+
     Future<void> llenarInicioYFin(WidgetTester tester) async {
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Nombre'),
         'Hunt nocturno',
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Fecha/hora de inicio'),
-        '2026-10-01 19:00:00',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Fecha/hora de fin'),
-        '2026-10-01 20:00:00',
-      );
+
+      fechasElegidas.addAll([
+        DateTime(2026, 10, 1),
+        DateTime(2026, 10, 1),
+      ]);
+      horasElegidas.addAll([
+        const TimeOfDay(hour: 19, minute: 0),
+        const TimeOfDay(hour: 20, minute: 0),
+      ]);
+
+      await elegir(tester, 'Fecha/hora de inicio');
+      await elegir(tester, 'Fecha/hora de fin');
     }
 
-    testWidgets('valida fecha de fin anterior al inicio antes de enviar',
+    testWidgets('no deja elegir un fin anterior al inicio',
         (WidgetTester tester) async {
       var peticiones = 0;
       final servicio = _servicioHuntCon(
@@ -67,6 +98,8 @@ void main() {
           home: CrearEventoScreen(
             servicio: servicio,
             auth: _FakeAuth(),
+            pedirFecha: pedirFechaDePrueba(),
+            pedirHora: pedirHoraDePrueba(),
           ),
         ),
       );
@@ -75,14 +108,27 @@ void main() {
         find.widgetWithText(TextFormField, 'Nombre'),
         'Hunt nocturno',
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Fecha/hora de inicio'),
-        '2026-10-01 20:00:00',
+
+      // El reloj devuelve 19:00, pero el inicio ya quedó en 20:00.
+      fechasElegidas.addAll([DateTime(2026, 10, 1), DateTime(2026, 10, 1)]);
+      horasElegidas.addAll([
+        const TimeOfDay(hour: 20, minute: 0),
+        const TimeOfDay(hour: 19, minute: 0),
+      ]);
+
+      await elegir(tester, 'Fecha/hora de inicio');
+      await elegir(tester, 'Fecha/hora de fin');
+
+      // El fin queda clavado en el inicio, no antes.
+      expect(
+        SelectorFechaHora.leer(
+          tester.widget<TextFormField>(
+            find.widgetWithText(TextFormField, 'Fecha/hora de fin'),
+          ).controller!.text,
+        ),
+        DateTime(2026, 10, 1, 20, 0),
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Fecha/hora de fin'),
-        '2026-10-01 19:00:00',
-      );
+
       await tester.ensureVisible(find.text('Crear evento'));
       await tester.tap(find.text('Crear evento'));
       await tester.pumpAndSettle();
@@ -92,6 +138,87 @@ void main() {
         findsOneWidget,
       );
       expect(peticiones, 0);
+    });
+
+    testWidgets('el calendario del fin no ofrece días anteriores al inicio',
+        (WidgetTester tester) async {
+      final rangos = <List<DateTime>>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CrearEventoScreen(
+            servicio: _servicioHuntCon(
+              MockClient((request) async => http.Response('{}', 400,
+                  headers: {'content-type': 'application/json'})),
+            ),
+            auth: _FakeAuth(),
+            pedirFecha: (context, inicial, primero, ultimo) async {
+              rangos.add([primero, ultimo]);
+              return DateTime(2026, 10, 1);
+            },
+            pedirHora: (context, inicial) async =>
+                inicial.hour == 9
+                    ? const TimeOfDay(hour: 20, minute: 0)
+                    : const TimeOfDay(hour: 21, minute: 30),
+          ),
+        ),
+      );
+
+      await elegir(tester, 'Fecha/hora de inicio');
+      await elegir(tester, 'Fecha/hora de fin');
+
+      expect(rangos, hasLength(2));
+
+      // El inicio no tiene mínimo: el calendario ofrece hacia atrás y hacia
+      // adelante, sin salirse de un rango razonable (algo más de un año atrás y
+      // cinco años adelante).
+      final ahora = DateTime.now();
+      expect(rangos[0][0].isAfter(ahora.subtract(const Duration(days: 400))),
+          isTrue);
+      expect(rangos[0][1].isAfter(ahora.add(const Duration(days: 1400))),
+          isTrue);
+      expect(rangos[0][1].isAfter(ahora.add(const Duration(days: 2000))),
+          isFalse);
+
+      // El fin sí: el primer día posible es el propio inicio, no uno anterior.
+      expect(rangos[1][0], DateTime(2026, 10, 1, 20, 0));
+
+      expect(find.text('2026-10-01 20:00:00'), findsOneWidget);
+      expect(find.text('2026-10-01 21:30:00'), findsOneWidget);
+    });
+
+    testWidgets('el reloj del fin arranca en la hora del inicio, no a las 9',
+        (WidgetTester tester) async {
+      final horasIniciales = <TimeOfDay>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CrearEventoScreen(
+            servicio: _servicioHuntCon(
+              MockClient((request) async => http.Response('{}', 400,
+                  headers: {'content-type': 'application/json'})),
+            ),
+            auth: _FakeAuth(),
+            pedirFecha: (context, inicial, primero, ultimo) async =>
+                DateTime(2026, 10, 1),
+            pedirHora: (context, inicial) async {
+              horasIniciales.add(inicial);
+              return inicial.hour == 9
+                  ? const TimeOfDay(hour: 20, minute: 0)
+                  : const TimeOfDay(hour: 21, minute: 30);
+            },
+          ),
+        ),
+      );
+
+      await elegir(tester, 'Fecha/hora de inicio');
+      await elegir(tester, 'Fecha/hora de fin');
+
+      // El primer campo ofrece las 9:00. El segundo, el mismo día, debe abrir
+      // el reloj en las 20:00 del inicio para que no se elija un fin anterior.
+      expect(horasIniciales, hasLength(2));
+      expect(horasIniciales[0], const TimeOfDay(hour: 9, minute: 0));
+      expect(horasIniciales[1], const TimeOfDay(hour: 20, minute: 0));
     });
 
     testWidgets('envía datos válidos al crear el evento',
@@ -118,6 +245,8 @@ void main() {
           home: CrearEventoScreen(
             servicio: servicio,
             auth: _FakeAuth(),
+            pedirFecha: pedirFechaDePrueba(),
+            pedirHora: pedirHoraDePrueba(),
           ),
         ),
       );

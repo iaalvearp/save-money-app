@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../services/hunt_service.dart';
+import '../widgets/selector_fecha_hora.dart';
 
 class CrearEventoScreen extends StatefulWidget {
   final HuntService? servicio;
   final AuthService? auth;
 
-  const CrearEventoScreen({super.key, this.servicio, this.auth});
+  /// Sustituyen al calendario y al reloj del sistema en pruebas.
+  final PedirFecha? pedirFecha;
+  final PedirHora? pedirHora;
+
+  const CrearEventoScreen({
+    super.key,
+    this.servicio,
+    this.auth,
+    this.pedirFecha,
+    this.pedirHora,
+  });
 
   @override
   State<CrearEventoScreen> createState() => _CrearEventoScreenState();
@@ -20,6 +31,10 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
   final _nombreController = TextEditingController();
   final _inicioController = TextEditingController();
   final _finController = TextEditingController();
+
+  /// El inicio como fecha, para que el selector de fin sepa hasta donde puede
+  /// llegar. Es el valor de verdad; los controllers solo llevan el texto.
+  DateTime? _inicio;
 
   bool _enviando = false;
   String? _error;
@@ -115,24 +130,32 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
               validator: _validarNombre,
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            SelectorFechaHora(
               controller: _inicioController,
-              decoration: const InputDecoration(
-                labelText: 'Fecha/hora de inicio',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Fecha/hora de inicio',
               validator: _validarFecha,
+              pedirFecha: widget.pedirFecha,
+              pedirHora: widget.pedirHora,
+              onCambiado: (valor) => setState(() {
+                _inicio = valor;
+                // Al mover el inicio, el fin puede quedarse atrás. Se suelta
+                // para que avise el error en vez de fallar al enviar.
+                if (valor != null && SelectorFechaHora.leer(_finController.text) != null) {
+                  _formKey.currentState?.validate();
+                }
+              }),
             ),
             const SizedBox(height: 12),
-            TextFormField(
+            SelectorFechaHora(
               controller: _finController,
-              decoration: const InputDecoration(
-                labelText: 'Fecha/hora de fin',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
-                border: OutlineInputBorder(),
-              ),
+              label: 'Fecha/hora de fin',
+              // No deja elegir un fin anterior al inicio: el error salta al
+              // elegir, no después de esperar la respuesta del servidor.
+              minimo: _inicio,
               validator: _validarRangoFin,
+              pedirFecha: widget.pedirFecha,
+              pedirHora: widget.pedirHora,
+              onCambiado: (_) => _formKey.currentState?.validate(),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
