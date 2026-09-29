@@ -218,6 +218,7 @@ hunt.post(
       notificados = await notificarAUsuarios(
         c,
         (destinatarios.results ?? []).map((r) => r.usuario_id),
+        "hunt_inicia",
         `¡${evento.nombre} ha comenzado!`,
         "El Hunt ya está en marcha. Revisa los premios disponibles y participa.",
         { tipo: "hunt_inicio", evento_id: String(eventoId) }
@@ -760,6 +761,7 @@ hunt.post(
       await notificarAUsuarios(
         c,
         [user.sub],
+        "premio_ganado",
         "¡Ganaste un premio!",
         `Reclamaste "${premio.nombre}". Pasa a recogerlo con el organizador.`,
         { tipo: "premio_ganado", evento_id: String(eventoId), premio_id: String(premioId) }
@@ -929,6 +931,7 @@ hunt.post(
         await notificarAUsuarios(
           c,
           [entrada.cliente_id],
+          "entrada_aprobada",
           "¡Tu entrada fue aprobada!",
           `Tu entrada para "${entrada.evento_nombre}" está aprobada. Ya puedes participar.`,
           { tipo: "entrada_aprobada", evento_id: String(entrada.evento_id) }

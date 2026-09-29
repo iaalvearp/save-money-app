@@ -599,14 +599,18 @@ auth.put("/ubicacion", async (c) => {
     // Un push caido para una promocion no debe saltarse las demas: cada
     // iteracion va protegida y el conteo solo suma las que si salieron.
     try {
-      await notificarAUsuarios(
+      // notificarAUsuarios aísla el fallo de un destinatario y devuelve cuántos
+      // salieron de verdad, así que el conteo se apoya en ese número: si se
+      // contara la llamada, un push caído se anunciaría como notificado.
+      const enviados = await notificarAUsuarios(
         c,
         [userId],
+        "flash_cercania",
         `Promoción cerca de ti: ${promo.titulo}`,
         `${promo.comercio_nombre} tiene una promoción a ${distancia.toFixed(1)} km de ti.`,
         { tipo: "flash_cercania", promocion_id: String(promo.id) }
       );
-      notificadas++;
+      if (enviados > 0) notificadas++;
     } catch (error) {
       console.error(`No se pudo notificar la promoción "${promo.titulo}":`, error);
     }

@@ -178,6 +178,21 @@ beforeAll(async () => {
 
   await db
     .prepare(
+      `CREATE TABLE IF NOT EXISTS notificaciones_enviadas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+        tipo TEXT NOT NULL,
+        titulo TEXT NOT NULL,
+        cuerpo TEXT NOT NULL,
+        data TEXT,
+        enviado_en TEXT NOT NULL DEFAULT (datetime('now')),
+        fcm_aceptado INTEGER NOT NULL DEFAULT 0
+      )`
+    )
+    .run();
+
+  await db
+    .prepare(
       `INSERT INTO usuarios (id, rol, email, password_hash, nombre_completo, fcm_token)
        VALUES (?, 'cliente', 'con-token@ubic.test', 'hash', 'Con Token', 'token-cerca')`
     )
@@ -202,6 +217,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   fcm = interceptarFcm();
   await db.prepare("DELETE FROM flash_notificaciones_enviadas").run();
+  await db.prepare("DELETE FROM notificaciones_enviadas").run();
   await db.prepare("DELETE FROM ubicaciones_usuarios").run();
   await db.prepare("DELETE FROM promociones_flash").run();
   await db.prepare("DELETE FROM comercios").run();
@@ -408,5 +424,63 @@ describe("PUT /auth/ubicacion - un push de Flash caido", () => {
       .bind(promoId)
       .all<{ usuario_id: number }>();
     expect(marcas.results).toHaveLength(1);
+  });
+});
+
+describe("auditoría de notificaciones enviadas - Flash por cercanía", () => {
+  it("deja una fila con tipo flash_cercania", async () => {
+    await crearPromocion(LAT_QUITO + 0.001, LNG_QUITO, 1);
+
+    const res = await reportarUbicacion(LAT_QUITO, LNG_QUITO);
+    expect(res.status).toBe(200);
+
+    const filas = await db
+      .prepare(
+        "SELECT usuario_id, tipo, titulo, cuerpo, data, fcm_aceptado FROM notificaciones_enviadas ORDER BY id"
+      )
+      .all<{
+        usuario_id: number;
+        tipo: string;
+        titulo: string;
+        cuerpo: string;
+        data: string | null;
+        fcm_aceptado: number;
+      }>();
+    const fila = filas.results?.[0];
+
+    expect(filas.results).toHaveLength(1);
+    expect(fila?.usuario_id).toBe(USUARIO_CON_TOKEN);
+    expect(fila?.tipo).toBe("flash_cercania");
+    expect(fila?.fcm_aceptado).toBe(1);
+    expect(fila?.titulo).toContain("Promoción cerca de ti");
+    expect(fila?.cuerpo).toContain("km de ti");
+    expect(JSON.parse(fila?.data ?? "{}")).toMatchObject({
+      tipo: "flash_cercania",
+    });
+  });
+
+  it("deja la fila con fcm_aceptado en 0 aunque el push se caiga", async () => {
+    await crearPromocion(LAT_QUITO + 0.001, LNG_QUITO, 1);
+
+    const app = buildApp();
+    const token = await makeToken(USUARIO_CON_TOKEN, "cliente");
+    const res = await app.request(
+      "/auth/ubicacion",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitud: LAT_QUITO, longitud: LNG_QUITO }),
+      },
+      { DB: db, JWT_SECRET, ...credencialesFcmQueFallan() }
+    );
+
+    // La posición se guarda igual: un push perdido no descarta el reporte.
+    expect(res.status).toBe(200);
+
+    const fila = await db
+      .prepare("SELECT tipo, fcm_aceptado FROM notificaciones_enviadas LIMIT 1")
+      .first<{ tipo: string; fcm_aceptado: number }>();
+    expect(fila?.tipo).toBe("flash_cercania");
+    expect(fila?.fcm_aceptado).toBe(0);
   });
 });

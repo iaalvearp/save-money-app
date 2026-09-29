@@ -252,9 +252,13 @@ notificaciones.post(
       );
     }
 
-    await enviarNotificacion(
-      c,
-      usuario.fcm_token,
+    // Pasa por notificarAUsuarios, no por enviarNotificacion directo, para que la
+    // prueba deje la misma fila de auditoría que un disparador real. Si algún día
+    // se aparta de ahí, la auditoría miente sobre lo que la app pidió enviar.
+    await notificarAUsuarios(
+      { ...c, env: { ...c.env, DB: db } },
+      [userId],
+      "prueba",
       "Hola desde Save Money",
       "¡Es una notificación de prueba! 🎉"
     );
@@ -264,13 +268,63 @@ notificaciones.post(
 );
 
 /**
+ * Los disparadores que dejan registro. La lista es cerrada y coincide con el
+ * CHECK de la tabla `notificaciones_enviadas`, para que agregar un disparador
+ * nuevo sea una decisión explícita y no una cadena cualquiera en una fila.
+ */
+export type TipoNotificacion =
+  | "hunt_inicia"
+  | "entrada_aprobada"
+  | "premio_ganado"
+  | "flash_cercania"
+  | "prueba";
+
+/**
+ * Deja la fila de auditoría del envío a un destinatario. Se escribe siempre, tanto
+ * si FCM aceptó el mensaje como si no lo aceptó o si el usuario no tenía token:
+ * cuando hay que averiguar por qué un push no llegó, la ausencia del registro es
+ * tan informativa como su contenido.
+ */
+async function registrarEnvio(
+  db: D1Database,
+  usuarioId: number,
+  tipo: TipoNotificacion,
+  titulo: string,
+  cuerpo: string,
+  data: Record<string, string> | undefined,
+  fcmAceptado: boolean
+): Promise<void> {
+  const dataJson =
+    data && Object.keys(data).length > 0 ? JSON.stringify(data) : null;
+
+  try {
+    await db
+      .prepare(
+        `INSERT INTO notificaciones_enviadas
+           (usuario_id, tipo, titulo, cuerpo, data, fcm_aceptado)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .bind(usuarioId, tipo, titulo, cuerpo, dataJson, fcmAceptado ? 1 : 0)
+      .run();
+  } catch (error) {
+    // Perder la auditoría no puede tumbar el envío ni la acción que lo disparó.
+    console.error(
+      `No se pudo registrar el envío de la notificación "${tipo}" al usuario ${usuarioId}:`,
+      error
+    );
+  }
+}
+
+/**
  * Envía una misma notificación a varios usuarios reutilizando `enviarNotificacion`.
- * Los usuarios sin token FCM registrado se omiten silenciosamente.
- * Devuelve cuántos envíos reales se hicieron (los que tenían token).
+ * Los usuarios sin token FCM registrado se omiten silenciosamente, pero igual
+ * quedan registrados en la auditoría.
+ * Devuelve cuántos envíos reales se hicieron (los que tenían token y FCM aceptó).
  */
 export async function notificarAUsuarios(
   c: FcmContexto & { env: { DB: D1Database } },
   usuarioIds: number[],
+  tipo: TipoNotificacion,
   titulo: string,
   cuerpo: string,
   data?: Record<string, string>
@@ -288,9 +342,31 @@ export async function notificarAUsuarios(
 
   let enviados = 0;
   for (const fila of filas.results ?? []) {
-    if (!fila.fcm_token) continue;
-    await enviarNotificacion(c, fila.fcm_token, titulo, cuerpo, data);
-    enviados++;
+    if (!fila.fcm_token) {
+      await registrarEnvio(
+        c.env.DB, fila.id, tipo, titulo, cuerpo, data, false
+      );
+      continue;
+    }
+
+    // Un token caduca y FCM lo acepta igual. Un fallo con una persona no puede
+    // dejar sin avisar a las demás de la lista, así que se aísla por destinatario
+    // y el error se registra aquí y no sube hasta la acción principal.
+    try {
+      await enviarNotificacion(c, fila.fcm_token, titulo, cuerpo, data);
+      enviados++;
+      await registrarEnvio(
+        c.env.DB, fila.id, tipo, titulo, cuerpo, data, true
+      );
+    } catch (error) {
+      console.error(
+        `No se pudo enviar la notificación "${tipo}" al usuario ${fila.id}:`,
+        error
+      );
+      await registrarEnvio(
+        c.env.DB, fila.id, tipo, titulo, cuerpo, data, false
+      );
+    }
   }
   return enviados;
 }

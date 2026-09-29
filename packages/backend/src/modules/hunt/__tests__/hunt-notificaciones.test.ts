@@ -129,6 +129,17 @@ beforeAll(async () => {
     actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
 
+  await db.prepare(`CREATE TABLE IF NOT EXISTS notificaciones_enviadas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    tipo TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    cuerpo TEXT NOT NULL,
+    data TEXT,
+    enviado_en TEXT NOT NULL DEFAULT (datetime('now')),
+    fcm_aceptado INTEGER NOT NULL DEFAULT 0
+  )`).run();
+
   await db.prepare(
     `INSERT INTO usuarios (id, rol, email, password_hash, nombre_completo, fcm_token) VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(ORGANIZADOR, "organizador", "organizador@notif.test", "hash", "Org", "token-organizador").run();
@@ -162,12 +173,31 @@ async function crearEventoConEntradas(
   const eventoId = res.meta.last_row_id as number;
 
   for (const [clienteId, estado] of Object.entries(estados)) {
-    await db
+  await db
       .prepare(`INSERT INTO entradas (evento_id, cliente_id, estado) VALUES (?, ?, ?)`)
       .bind(eventoId, Number(clienteId), estado)
       .run();
   }
   return eventoId;
+}
+
+type FilaAuditoria = {
+  usuario_id: number;
+  tipo: string;
+  titulo: string;
+  cuerpo: string;
+  data: string | null;
+  fcm_aceptado: number;
+};
+
+function filasAuditoria(where = "1 = 1"): Promise<FilaAuditoria[]> {
+  return db
+    .prepare(
+      `SELECT usuario_id, tipo, titulo, cuerpo, data, fcm_aceptado
+       FROM notificaciones_enviadas WHERE ${where} ORDER BY id`
+    )
+    .all<FilaAuditoria>()
+    .then((r) => r.results ?? []);
 }
 
 async function iniciarHunt(eventoId: number): Promise<Response> {
@@ -185,6 +215,7 @@ async function iniciarHunt(eventoId: number): Promise<Response> {
 
 beforeEach(async () => {
   fcm = interceptarFcm();
+  await db.prepare("DELETE FROM notificaciones_enviadas").run();
   // Comienza en el valor por defecto de la migración 0012.
   await db
     .prepare(
@@ -659,5 +690,192 @@ describe("un push caido no rompe la accion principal", () => {
       .first<{ puntos: number }>();
     expect(puntos?.puntos).toBe(10);
     expect(errores).toHaveBeenCalled();
+  });
+});
+
+describe("auditoría de notificaciones enviadas", () => {
+  /** Aprobación de una entrada, reutilizada por los disparadores que la necesitan. */
+  async function aprobarEntrada(
+    eventoId: number,
+    clienteId: number
+  ): Promise<number> {
+    const entradaId = (
+      await db
+        .prepare("SELECT id FROM entradas WHERE evento_id = ? AND cliente_id = ?")
+        .bind(eventoId, clienteId)
+        .first<{ id: number }>()
+    )?.id as number;
+
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    await app.request(
+      `/hunt/entradas/${entradaId}/revisar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ aprueba: true }),
+      },
+      { DB: db, JWT_SECRET, ...credenciales }
+    );
+    return entradaId;
+  }
+
+  /** Evento en curso con un premio, para disparar el aviso de premio ganado. */
+  async function eventoConPremio(clienteId: number): Promise<{ eventoId: number; premioId: number }> {
+    const evento = await db
+      .prepare(
+        `INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin, requiere_entrada)
+         VALUES (?, ?, ?, ?, 0)`
+      )
+      .bind(ORGANIZADOR, "Hunt con premio", fecha(-1), fecha(1))
+      .run();
+    const eventoId = evento.meta.last_row_id as number;
+
+    const premio = await db
+      .prepare(
+        `INSERT INTO premios (evento_id, nombre, stock, tipo) VALUES (?, ?, 1, 'principal')`
+      )
+      .bind(eventoId, "Cena de premio")
+      .run();
+
+    return { eventoId, premioId: premio.meta.last_row_id as number };
+  }
+
+  it("iniciar el Hunt deja una fila por destinatario con tipo hunt_inicia", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "aprobada",
+      [CLIENTE_SIN_TOKEN]: "aprobada",
+    });
+
+    const res = await iniciarHunt(eventoId);
+    expect(res.status).toBe(200);
+
+    const filas = await filasAuditoria("tipo = 'hunt_inicia'");
+    expect(filas).toHaveLength(2);
+    // El que tenía token salió; el que no lo tenía también queda, con 0.
+    expect(filas.map((f) => [f.usuario_id, f.fcm_aceptado])).toEqual([
+      [CLIENTE_APROBADO, 1],
+      [CLIENTE_SIN_TOKEN, 0],
+    ]);
+    expect(filas[0].titulo).toBe("¡Hunt de prueba ha comenzado!");
+    expect(filas[0].cuerpo).toBe(
+      "El Hunt ya está en marcha. Revisa los premios disponibles y participa."
+    );
+    expect(JSON.parse(filas[0].data ?? "{}")).toMatchObject({
+      evento_id: String(eventoId),
+    });
+  });
+
+  it("aprobar una entrada deja una fila con tipo entrada_aprobada", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_PENDIENTE]: "pendiente_revision_comprobante",
+    });
+
+    await aprobarEntrada(eventoId, CLIENTE_PENDIENTE);
+
+    const filas = await filasAuditoria("tipo = 'entrada_aprobada'");
+    expect(filas).toHaveLength(1);
+    expect(filas[0].usuario_id).toBe(CLIENTE_PENDIENTE);
+    expect(filas[0].fcm_aceptado).toBe(1);
+    expect(filas[0].titulo).toBe("¡Tu entrada fue aprobada!");
+  });
+
+  it("rechazar una entrada no deja fila: no hubo nada que auditar", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_PENDIENTE]: "pendiente_revision_comprobante",
+    });
+    await aprobarEntrada(eventoId, CLIENTE_PENDIENTE);
+    await db.prepare("DELETE FROM notificaciones_enviadas").run();
+
+    const entradaId = (
+      await db
+        .prepare("SELECT id FROM entradas WHERE evento_id = ?")
+        .bind(eventoId)
+        .first<{ id: number }>()
+    )?.id as number;
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    await app.request(
+      `/hunt/entradas/${entradaId}/revisar`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ aprueba: false }),
+      },
+      { DB: db, JWT_SECRET, ...credenciales }
+    );
+
+    expect(await filasAuditoria()).toHaveLength(0);
+  });
+
+  it("reclamar un premio deja una fila con tipo premio_ganado", async () => {
+    const { eventoId, premioId } = await eventoConPremio(CLIENTE_APROBADO);
+
+    const app = buildApp();
+    const token = await makeToken(CLIENTE_APROBADO, "cliente");
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET, ...credenciales }
+    );
+    expect(res.status).toBe(201);
+
+    const filas = await filasAuditoria("tipo = 'premio_ganado'");
+    expect(filas).toHaveLength(1);
+    expect(filas[0].usuario_id).toBe(CLIENTE_APROBADO);
+    expect(filas[0].fcm_aceptado).toBe(1);
+    expect(filas[0].titulo).toBe("¡Ganaste un premio!");
+    expect(JSON.parse(filas[0].data ?? "{}")).toMatchObject({
+      premio_id: String(premioId),
+    });
+  });
+
+  it("si FCM falla, la fila queda igual con fcm_aceptado en 0", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "aprobada",
+    });
+
+    const app = buildApp();
+    const token = await makeToken(ORGANIZADOR, "organizador");
+    const res = await app.request(
+      `/hunt/eventos/${eventoId}/iniciar`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      { DB: db, JWT_SECRET, ...credencialesFcmQueFallan() }
+    );
+
+    // La acción principal no se cae por un push que no salió.
+    expect(res.status).toBe(200);
+
+    const filas = await filasAuditoria("tipo = 'hunt_inicia'");
+    expect(filas).toHaveLength(1);
+    expect(filas[0].usuario_id).toBe(CLIENTE_APROBADO);
+    expect(filas[0].fcm_aceptado).toBe(0);
+  });
+
+  it("un fallo con una persona no deja sin avisar a las demás", async () => {
+    // El token del cliente caduca y FCM lo acepta igual: el envío "sale" pero
+    // no aparece en el teléfono. El registro de uno no puede tapar al otro.
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "aprobada",
+      [CLIENTE_PENDIENTE]: "aprobada",
+    });
+
+    await iniciarHunt(eventoId);
+
+    const filas = await filasAuditoria("tipo = 'hunt_inicia'");
+    expect(filas).toHaveLength(2);
+    expect(filas.every((f) => f.fcm_aceptado === 1)).toBe(true);
+  });
+
+  it("la fecha de envío queda puesta por la base de datos", async () => {
+    const eventoId = await crearEventoConEntradas({
+      [CLIENTE_APROBADO]: "aprobada",
+    });
+    await iniciarHunt(eventoId);
+
+    const fila = await db
+      .prepare("SELECT enviado_en FROM notificaciones_enviadas LIMIT 1")
+      .first<{ enviado_en: string }>();
+    expect(fila?.enviado_en).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 });
