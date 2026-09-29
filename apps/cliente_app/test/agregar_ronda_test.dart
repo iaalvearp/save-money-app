@@ -223,5 +223,92 @@ void main() {
 
       expect(texto(tester, 'Hora de fin'), finEvento);
     });
+
+    testWidgets('la ronda puede ocupar exactamente la ventana del evento',
+        (WidgetTester tester) async {
+      // Lo que pasó en el uso real: se abre el selector, el reloj ofrece la
+      // hora exacta de inicio del evento, se elige, y el formulario la
+      // rechazaba con "Debe ser posterior al inicio del evento".
+      var peticiones = 0;
+      final mock = MockClient((request) async {
+        peticiones++;
+        return http.Response('{"ronda": {"id": 9}}', 201,
+            headers: {'content-type': 'application/json'});
+      });
+
+      await pump(tester, mock);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre'),
+        'Primera ronda',
+      );
+
+      fechas.addAll([DateTime(2026, 10, 1), DateTime(2026, 10, 1)]);
+      horas.addAll([
+        const TimeOfDay(hour: 19, minute: 0),
+        const TimeOfDay(hour: 23, minute: 0),
+      ]);
+
+      await elegir(tester, 'Hora de inicio');
+      await elegir(tester, 'Hora de fin');
+
+      // Los dos extremos del evento se respetan tal cual.
+      expect(texto(tester, 'Hora de inicio'), inicioEvento);
+      expect(texto(tester, 'Hora de fin'), finEvento);
+
+      await tester.ensureVisible(find.text('Crear ronda'));
+      await tester.tap(find.text('Crear ronda'));
+      await tester.pumpAndSettle();
+
+      expect(peticiones, 1);
+      expect(
+        find.text('Debe ser posterior al inicio del evento'),
+        findsNothing,
+      );
+      expect(find.text('Debe ser anterior al fin del evento'), findsNothing);
+    });
+
+    testWidgets('una ronda un minuto antes del evento sigue sin pasar',
+        (WidgetTester tester) async {
+      var peticiones = 0;
+      final mock = MockClient((request) async {
+        peticiones++;
+        return http.Response('{"error": "no"}', 400,
+            headers: {'content-type': 'application/json'});
+      });
+
+      await pump(tester, mock);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre'),
+        'Primera ronda',
+      );
+
+      fechas.addAll([DateTime(2026, 10, 1), DateTime(2026, 10, 1)]);
+      horas.addAll([
+        const TimeOfDay(hour: 19, minute: 0),
+        const TimeOfDay(hour: 23, minute: 0),
+      ]);
+
+      await elegir(tester, 'Hora de inicio');
+      await elegir(tester, 'Hora de fin');
+
+      // El selector recorta, pero el validador tiene que seguir rechazando
+      // un texto anterior al evento si llegara de otra forma.
+      final campoInicio = find.widgetWithText(TextFormField, 'Hora de inicio');
+      tester.widget<TextFormField>(campoInicio).controller!.text =
+          '2026-10-01 18:59:00';
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Crear ronda'));
+      await tester.tap(find.text('Crear ronda'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Debe ser posterior al inicio del evento'),
+        findsOneWidget,
+      );
+      expect(peticiones, 0);
+    });
   });
 }

@@ -86,10 +86,12 @@ class _AgregarRondaScreenState extends State<AgregarRondaScreen> {
     final inicio = DateTime.tryParse(widget.fechaInicio);
     final fin = DateTime.tryParse(widget.fechaFin);
     if (inicio != null && fin != null) {
-      if (!dt.isAfter(inicio)) {
+      // Los dos extremos cuentan: el selector deja elegir justo la hora de
+      // inicio y la de fin del evento, asi que aqui tambien se aceptan.
+      if (dt.isBefore(inicio)) {
         return 'Debe ser posterior al inicio del evento';
       }
-      if (!dt.isBefore(fin)) {
+      if (dt.isAfter(fin)) {
         return 'Debe ser anterior al fin del evento';
       }
     }
