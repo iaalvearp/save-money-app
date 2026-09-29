@@ -58,6 +58,7 @@ beforeAll(async () => {
     consentimiento_publicidad INTEGER,
     consentimiento_publicidad_fecha TEXT,
     fcm_token TEXT,
+        fcm_token_updated_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`).run();
 

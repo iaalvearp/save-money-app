@@ -489,10 +489,25 @@ auth.put("/fcm-token", async (c) => {
 
   const fcmToken = body.fcm_token?.trim() || null;
 
-  await db
-    .prepare("UPDATE usuarios SET fcm_token = ? WHERE id = ?")
-    .bind(fcmToken, auth.userId)
-    .run();
+  // La fecha solo se anota cuando hay token. Si el cliente envía vacío para
+  // limpiarlo, la última vez que sí se registró es la que sirve para
+  // diagnosticar, y sobrescribirla con "ahora" perdería ese dato justo cuando
+  // más hace falta.
+  if (fcmToken) {
+    await db
+      .prepare(
+        `UPDATE usuarios
+            SET fcm_token = ?, fcm_token_updated_at = datetime('now')
+          WHERE id = ?`
+      )
+      .bind(fcmToken, auth.userId)
+      .run();
+  } else {
+    await db
+      .prepare("UPDATE usuarios SET fcm_token = NULL WHERE id = ?")
+      .bind(auth.userId)
+      .run();
+  }
 
   return c.json({ ok: true });
 });
