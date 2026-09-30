@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/comercios_service.dart';
+import '../widgets/codigo_copiable.dart';
 import '../widgets/dialogo_error.dart';
 import 'facturacion_screen.dart';
 
@@ -482,12 +483,28 @@ class _PromocionTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Código: ${promocion.codigoQr}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 14,
-                ),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      'Código: ${promocion.codigoQr}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  // El código se copia con un toque, sin que haya que elegirlo
+                  // a mano: suele ser largo y pegarlo mal bloquea el canje.
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 16),
+                    color: Colors.grey[700],
+                    tooltip: 'Copiar código',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () =>
+                        CodigoCopiable.copiar(context, promocion.codigoQr),
+                  ),
+                ],
               ),
               if (promocion.expiraEn != null)
                 Text(

@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../services/flash_service.dart';
 import '../services/permiso_ubicacion_service.dart';
 import '../widgets/aviso_ubicacion.dart';
+import '../widgets/codigo_copiable.dart';
 import '../widgets/dialogo_error.dart';
 
 class FlashScreen extends StatefulWidget {
@@ -481,9 +482,9 @@ class _FlashDetalleScreenState extends State<_FlashDetalleScreen> {
                       style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      cupon['codigo_qr'] as String,
-                      style: const TextStyle(
+                    CodigoCopiable(
+                      codigo: cupon['codigo_qr'] as String,
+                      estiloCodigo: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,
