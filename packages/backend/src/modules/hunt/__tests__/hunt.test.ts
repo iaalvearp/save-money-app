@@ -38,6 +38,18 @@ function futureMoment(days: number, hora: string): string {
   return `${futureDay(days)} ${hora}`;
 }
 
+/**
+ * Un momento escrito en hora de Ecuador, desplazado del ahora la cantidad de
+ * minutos indicada. Ecuador no tiene horario de verano, asi que la hora de
+ * pared es siempre el reloj menos cinco horas.
+ */
+function momentoAlrededorDeAhora(minutos: number): string {
+  return new Date(Date.now() - 5 * 3600_000 + minutos * 60_000)
+    .toISOString()
+    .replace("T", " ")
+    .slice(0, 19);
+}
+
 function pastDate(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -1337,6 +1349,146 @@ describe("POST /hunt/eventos/:eventoId/premios/:premioId/reclamar", () => {
       .first<{ cnt: number }>();
     expect(stockRow?.cnt).toBe(1);
   });
+  describe("ventana horaria de la ronda del premio", () => {
+    /** Evento abierto con un premio que pertenece a una ronda. */
+    async function premioDeRonda(
+      nombre: string,
+      horaInicio: string,
+      horaFin: string
+    ) {
+      const eventoRes = await db
+        .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                  VALUES (?, ?, ?, ?)`)
+        .bind(1, nombre, pastDate(1), futureDate(3))
+        .run();
+      const eventoId = eventoRes.meta.last_row_id;
+
+      const rondaRes = await db
+        .prepare(`INSERT INTO rondas (evento_id, nombre, hora_inicio, hora_fin)
+                  VALUES (?, ?, ?, ?)`)
+        .bind(eventoId, "Ronda de prueba", horaInicio, horaFin)
+        .run();
+
+      const premioRes = await db
+        .prepare(`INSERT INTO premios (evento_id, ronda_id, nombre, stock, tipo)
+                  VALUES (?, ?, ?, ?, ?)`)
+        .bind(eventoId, rondaRes.meta.last_row_id, "Premio de ronda", 3, "principal")
+        .run();
+
+      return { eventoId, premioId: Number(premioRes.meta.last_row_id) };
+    }
+
+    async function reclamar(eventoId: number, premioId: number) {
+      const app = buildApp();
+      const token = await makeToken(3, "cliente");
+      return app.request(
+        `/hunt/eventos/${eventoId}/premios/${premioId}/reclamar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({}),
+        },
+        { DB: db, JWT_SECRET }
+      );
+    }
+
+    it("reclama con normalidad dentro de la ventana de la ronda", async () => {
+      const { eventoId, premioId } = await premioDeRonda(
+        "Evento Ronda Abierta",
+        momentoAlrededorDeAhora(-60),
+        momentoAlrededorDeAhora(60)
+      );
+
+      const res = await reclamar(eventoId, premioId);
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { premio_id: string; puntos_ganados: number };
+      expect(body.premio_id).toBe(String(premioId));
+      expect(body.puntos_ganados).toBe(10);
+
+      const entregado = await db
+        .prepare("SELECT id FROM premios_entregados WHERE premio_id = ? AND usuario_id = 3")
+        .bind(premioId)
+        .first();
+      expect(entregado).toBeTruthy();
+    });
+
+    it("rechaza con 422 cuando la ronda ya cerro", async () => {
+      const { eventoId, premioId } = await premioDeRonda(
+        "Evento Ronda Cerrada",
+        momentoAlrededorDeAhora(-120),
+        momentoAlrededorDeAhora(-60)
+      );
+
+      const res = await reclamar(eventoId, premioId);
+
+      expect(res.status).toBe(422);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: "Esta ronda ya cerró.",
+      });
+
+      // Lo importante: no se entrega nada ni se suman puntos.
+      const entregado = await db
+        .prepare("SELECT id FROM premios_entregados WHERE premio_id = ? AND usuario_id = 3")
+        .bind(premioId)
+        .first();
+      expect(entregado).toBeNull();
+
+      const puntos = await db
+        .prepare("SELECT puntos FROM puntos_evento WHERE evento_id = ? AND usuario_id = 3")
+        .bind(eventoId)
+        .first();
+      expect(puntos).toBeNull();
+    });
+
+    it("rechaza con 422 cuando la ronda aun no empieza", async () => {
+      const { eventoId, premioId } = await premioDeRonda(
+        "Evento Ronda Por Empezar",
+        momentoAlrededorDeAhora(60),
+        momentoAlrededorDeAhora(120)
+      );
+
+      const res = await reclamar(eventoId, premioId);
+
+      expect(res.status).toBe(422);
+      expect((await res.json()) as { error: string }).toEqual({
+        error: "Esta ronda ya cerró.",
+      });
+
+      const entregado = await db
+        .prepare("SELECT id FROM premios_entregados WHERE premio_id = ? AND usuario_id = 3")
+        .bind(premioId)
+        .first();
+      expect(entregado).toBeNull();
+    });
+
+    it("un premio sin ronda no depende de ninguna ventana de ronda", async () => {
+      // El evento sigue abierto, asi que este premio se entrega como siempre.
+      const eventoRes = await db
+        .prepare(`INSERT INTO eventos (organizador_id, nombre, fecha_inicio, fecha_fin)
+                  VALUES (?, ?, ?, ?)`)
+        .bind(1, "Evento Premio De Evento", pastDate(1), futureDate(3))
+        .run();
+      const eventoId = eventoRes.meta.last_row_id;
+
+      const premioRes = await db
+        .prepare(`INSERT INTO premios (evento_id, nombre, stock, tipo)
+                  VALUES (?, ?, ?, ?)`)
+        .bind(eventoId, "Premio de todo el evento", 3, "principal")
+        .run();
+
+      const premioId = Number(premioRes.meta.last_row_id);
+      const res = await reclamar(eventoId, premioId);
+
+      expect(res.status).toBe(201);
+      expect((await res.json()) as { puntos_ganados: number }).toEqual({
+        mensaje: 'Premio "Premio de todo el evento" reclamado',
+        premio_id: String(premioId),
+        puntos_ganados: 10,
+      });
+    });
+  });
+
 });
 
 describe("GET /hunt/eventos/:eventoId/premios/:premioId/ganadores", () => {

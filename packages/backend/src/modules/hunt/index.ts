@@ -678,6 +678,26 @@ hunt.post(
       return c.json({ error: "Premio no encontrado" }, 404);
     }
 
+    // Un premio con ronda solo existe mientras esa ronda esta abierta. Antes
+    // solo se miraba el stock, asi que una ronda cerrada seguia entregando
+    // premios a quien tuviera entrada. Sin ronda el premio es de todo el
+    // evento y manda la ventana del evento de mas arriba, sin cambios.
+    if (premio.ronda_id !== null) {
+      const ronda = await db
+        .prepare(
+          "SELECT hora_inicio, hora_fin FROM rondas WHERE id = ? AND evento_id = ?"
+        )
+        .bind(premio.ronda_id, eventoId)
+        .first<{ hora_inicio: string; hora_fin: string }>();
+
+      // Las horas de la ronda estan en hora de Ecuador, asi que se comparan
+      // como instante y no como texto. Si la ventana no se puede leer no se
+      // puede afirmar que siga abierta, asi que se rechaza igual.
+      if (!ronda || !instanteEnVentana(Date.now(), ronda.hora_inicio, ronda.hora_fin)) {
+        return c.json({ error: "Esta ronda ya cerró." }, 422);
+      }
+    }
+
     // Un premio por frecuencia no se gana por azar: hay que haber hecho las
     // compras que pide, en un comercio patrocinador y dentro de la ventana.
     let conteo = null;
