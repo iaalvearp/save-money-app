@@ -558,7 +558,21 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
   // solo se manda a la camara cuando no esta vacia, asi que ya se detectan
   // los codigos de barras (Code128) y no solo los QR. Limitarla seria
   // quitar formatos que hoy funcionan.
-  final MobileScannerController _controller = MobileScannerController();
+  //
+  // La resolucion si importa, y mucho: en Android, sin cameraResolution el
+  // paquete usa 640x480. A 640 pixeles de ancho, las barras finas de un
+  // Code128 de 49 digitos no se separan lo suficiente y ML Kit no lo lee,
+  // mientras que un QR si entra de sobra en esa resolucion. Por eso el QR
+  // funcionaba y las barras no. 1920x1080 es la maxima que entrega casi
+  // cualquier camara de celular, asi que no se pierde nada por pedirla y el
+  // propio paquete cae a la mas cercana si el equipo no llega.
+  final MobileScannerController _controller = MobileScannerController(
+    cameraResolution: const Size(1920, 1080),
+    // normal trae un timeout de 250 ms entre lecturas, que es lo que evita
+    // que un equipo viejo se quede sin memoria. noDuplicates hace lo mismo
+    // pero solo compara contra el ultimo codigo: no es mas rapido ni mejor
+    // para 1D, asi que se deja el modo por defecto.
+  );
   bool _dialogoVisible = false;
   bool _resolvidoValido = false;
   EstadoPermisoCamara _estadoPermiso = EstadoPermisoCamara.concediendo;
